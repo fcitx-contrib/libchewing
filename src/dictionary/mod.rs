@@ -14,6 +14,7 @@ pub use self::loader::{
     AssetLoader, DEFAULT_DICT_NAMES, LoadDictionaryError, SingleDictionaryLoader,
     UserDictionaryManager,
 };
+pub use self::string_table::StringTable;
 pub use self::trie::{Trie, TrieBuilder, TrieOpenOptions, TrieStatistics};
 pub use self::trie_buf::TrieBuf;
 pub use self::usage::DictionaryUsage;
@@ -22,6 +23,7 @@ use crate::zhuyin::Syllable;
 
 mod layered;
 mod loader;
+mod string_table;
 mod trie;
 mod trie_buf;
 mod usage;
