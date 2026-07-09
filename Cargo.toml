@@ -40,6 +40,7 @@ tempfile = "3.10.1"
 [dependencies]
 der = { version = "0.7.7", features = ["std"] }
 log = { workspace = true }
+scoped-error = "0.1.5"
 
 [dev-dependencies]
 tempfile = { workspace = true }

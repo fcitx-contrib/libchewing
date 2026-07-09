@@ -85,6 +85,7 @@ version = "0.13.1"
 dependencies = [
  "der",
  "log",
+ "scoped-error",
  "tempfile",
 ]
 
@@ -359,6 +360,12 @@ dependencies = [
  "linux-raw-sys",
  "windows-sys",
 ]
+
+[[package]]
+name = "scoped-error"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47c92e5e30389ba745a4f472dfffe4825408e97290fdf72f1788b96c2c6c5629"
 
 [[package]]
 name = "strsim"

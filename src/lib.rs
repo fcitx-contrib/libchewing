@@ -78,6 +78,7 @@
 #[macro_use]
 mod exn;
 
+mod bare;
 pub mod conversion;
 pub mod dictionary;
 pub mod editor;
