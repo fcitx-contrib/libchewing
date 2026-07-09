@@ -1,0 +1,134 @@
+# static_dict.bin
+# ===============
+# Trie dictionary for bopomofo to words conversion
+
+type StaticDictFileMagic struct {
+    magic: data[4]                # CHSD
+    file: StaticDictFile
+}
+
+type StaticDictFile union {StaticDictFileV1}
+
+type StaticDictFileV1 struct {
+    header: StaticDictHeaderV1
+    index: StaticDictIndexV1
+}
+
+type StaticDictHeaderV1 struct {
+    flags: u32
+}
+
+type StaticDictIndexV1 struct {
+    nodes: list<StaticDictIndexNodeV1>
+}
+
+type StaticDictIndexNodeV1 struct {
+    child_start: u32
+    child_len: u16
+    syllable: u16
+}
+
+# If the last 2 bytes are all zeros then the node can be
+# reinterpreted as a leaf node.
+type StaticDictIndexLeafNodeV1 struct {
+    data_start: u32
+    data_len: u16
+    reserved: u16
+}
+
+# static_lm.bin
+# ============================================
+# bigram + unigram in compressed sparse row format
+
+type StaticLMFileMagic struct {
+    magic: data[4]                # CHLM
+    file: StaticLMFile
+}
+
+type StaticLMFile union {StaticLMFileV1}
+
+type StaticLMFileV1 struct {
+    header: StaticLMHeaderV1,
+    index: StaticLMIndexV1,
+}
+
+type StaticLMHeaderV1 struct {
+    flags: u32
+    num_rows: u32
+    num_values: u64
+}
+
+type StaticLMIndexV1 {
+    r: list<u32>[num_rows]
+    v: list<u32>[num_values]
+    c: list<u32>[num_values]
+}
+
+# user_history.bin
+# ============================================
+
+type UserHistoryFileMagic struct {
+    magic: data[4]                 # CHUH
+    file: UserHistoryFile
+}
+
+type UserHistoryFile union {UserHistoryFileV1}
+
+type UserHistoryFileV1 struct {
+    header: UserHistoryHeaderV1,
+    payload: UserHistoryListV1,,
+}
+
+type UserHistoryHeaderV1 struct {
+    half_life: u32
+    generation: u64
+    count: u32
+}
+
+type UserHistoryListV1 struct {
+    history: list<UserHistoryEntry>[count]
+}
+
+type UserHistoryEntry struct {
+    word_id: u32
+    c_i: u32
+    b_i: u64
+}
+
+# user_vocab.bin (WAL / Append-Only Log)
+# ============================================
+
+type UserVocabFileMagic struct {
+    magic: data[4]               # CHUV
+    file: UserVocabFile
+}
+
+type UserVocabFile union {UserVocabFileV1}
+
+type UserVocabFileV1 struct {
+    header: UserVocabHeaderV1,
+    records: list<FramedRecord>[] # until EOF
+}
+
+type UserVocabHeaderV1 struct {
+    flags: u32
+}
+
+type FramedRecord struct {
+    frame_size: u32
+    seqno: u32
+    payload: Payload
+    cksum: u32            # crc32c([seqno, payload])
+}
+
+type Payload union {AddPayload | DeletePayload}
+
+type AddPayload struct {
+    flags: u8,
+    syllables: list<u16>
+    word: str
+}
+
+type DeletePayload struct {
+    target_seqno: u32,
+}
