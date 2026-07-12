@@ -64,71 +64,63 @@ type StaticLMIndexV1 {
     c: list<u32>[num_values]
 }
 
-# user_history.bin
+# history_freq.bin
 # ============================================
 
-type UserHistoryFileMagic struct {
-    magic: data[4]                 # CHUH
-    file: UserHistoryFile
+type HistoryFreqFileMagic struct {
+    magic: data[4]                 # CHHF
+    file: HistoryFreqFile
 }
 
-type UserHistoryFile union {UserHistoryFileV1}
+type HistoryFreqFile union {HistoryFreqFileV1}
 
-type UserHistoryFileV1 struct {
-    header: UserHistoryHeaderV1,
-    payload: UserHistoryListV1,,
+type HistoryFreqFileV1 struct {
+    header: HistoryFreqHeaderV1,
+    payload: HistoryFreqListV1,
 }
 
-type UserHistoryHeaderV1 struct {
+type HistoryFreqHeader struct {
+    flags: u32
     half_life: u32
     generation: u64
     count: u32
 }
 
-type UserHistoryListV1 struct {
-    history: list<UserHistoryEntry>[count]
+type HistoryFreqList struct {
+    history: list<HistoryFreqEntry>[count]
 }
 
-type UserHistoryEntry struct {
-    word_id: u32
+type HistoryFreqEntry struct {
+    word: str
     c_i: u32
     b_i: u64
 }
 
-# user_vocab.bin (WAL / Append-Only Log)
+# history_dict.bin
 # ============================================
 
-type UserVocabFileMagic struct {
-    magic: data[4]               # CHUV
-    file: UserVocabFile
+type HistoryDictFileMagic struct {
+    magic: data[4]               # CHHD
+    file: HistoryDictFile
 }
 
-type UserVocabFile union {UserVocabFileV1}
+type HistoryDictFile union {HistoryDictFileV1}
 
-type UserVocabFileV1 struct {
-    header: UserVocabHeaderV1,
-    records: list<FramedRecord>[] # until EOF
+type HistoryDictFileV1 struct {
+    header: HistoryDictHeader,
+    payload: HistoryDictList,
 }
 
-type UserVocabHeaderV1 struct {
+type HistoryDictHeader struct {
     flags: u32
+    count: u32
 }
 
-type FramedRecord struct {
-    frame_size: u32
-    seqno: u32
-    payload: Payload
-    cksum: u32            # crc32c([seqno, payload])
+type HistoryDictList struct {
+    records: list<HistoryDictEntry>[count]
 }
 
-type Payload union {AddPayload | DeletePayload}
-
-type AddPayload struct {
-    flags: u8,
+type HistoryDictEntry struct {
     syllables: list<u16>
     word: str
-}
-
-type DeletePayload struct {
-    target_seqno: u32,
 }

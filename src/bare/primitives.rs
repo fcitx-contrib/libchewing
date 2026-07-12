@@ -9,17 +9,8 @@ use super::BareDecoder;
 use super::BareEncoder;
 use super::BareError;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct Uint(u64);
-
-impl Uint {
-    pub(crate) fn as_u64(&self) -> u64 {
-        self.0
-    }
-}
-
 impl<R: Read> BareDecoder<R> {
-    fn read_uint(&mut self) -> Result<Uint, BareError> {
+    pub(crate) fn read_uint(&mut self) -> Result<u64, BareError> {
         expect_error("Failed to decode uint from buffer", || {
             let mut acc = 0;
             for i in 0.. {
@@ -31,45 +22,52 @@ impl<R: Read> BareDecoder<R> {
                     bail!("invalid uint encoding");
                 }
                 if b < 0x80 {
-                    return Ok(Uint(acc | ((b as u64) << (i * 7))));
+                    return Ok(acc | ((b as u64) << (i * 7)));
                 }
                 acc |= ((b & 0x7f) as u64) << (i * 7);
             }
             unreachable!()
         })
     }
-    fn read_u8(&mut self) -> Result<u8, BareError> {
+    pub(crate) fn read_u8(&mut self) -> Result<u8, BareError> {
         expect_error("Failed to decode u8 from buffer", || {
             let mut buf = [0u8; 1];
             self.reader.read_exact(&mut buf)?;
             Ok(buf[0])
         })
     }
-    fn read_u16(&mut self) -> Result<u16, BareError> {
+    pub(crate) fn read_u16(&mut self) -> Result<u16, BareError> {
         expect_error("Failed to decode u16 from buffer", || {
             let mut buf = [0u8; 2];
             self.reader.read_exact(&mut buf)?;
             Ok(u16::from_le_bytes(buf.try_into()?))
         })
     }
-    fn read_u32(&mut self) -> Result<u32, BareError> {
+    pub(crate) fn read_u32(&mut self) -> Result<u32, BareError> {
         expect_error("Failed to decode u32 from buffer", || {
             let mut buf = [0u8; 4];
             self.reader.read_exact(&mut buf)?;
             Ok(u32::from_le_bytes(buf.try_into()?))
         })
     }
-    fn read_data(&mut self) -> Result<Vec<u8>, BareError> {
+    pub(crate) fn read_u64(&mut self) -> Result<u64, BareError> {
+        expect_error("Failed to decode u64 from buffer", || {
+            let mut buf = [0u8; 8];
+            self.reader.read_exact(&mut buf)?;
+            Ok(u64::from_le_bytes(buf.try_into()?))
+        })
+    }
+    pub(crate) fn read_data(&mut self) -> Result<Vec<u8>, BareError> {
         expect_error("Failed to decode data from buffer", || {
-            let len = self.read_uint()?.as_u64() as usize;
+            let len = self.read_uint()? as usize;
             let mut buf = vec![0; len];
             self.reader.read_exact(&mut buf)?;
             Ok(buf)
         })
     }
-    fn read_data_exact(&mut self, len: u64) -> Result<Vec<u8>, BareError> {
+    pub(crate) fn read_data_exact(&mut self, len: usize) -> Result<Vec<u8>, BareError> {
         expect_error("Failed to decode data[length] from buffer", || {
-            let mut buf = vec![0; len as usize];
+            let mut buf = vec![0; len];
             self.reader.read_exact(&mut buf)?;
             Ok(buf)
         })
@@ -107,6 +105,12 @@ impl<W: Write> BareEncoder<W> {
             Ok(())
         })
     }
+    pub(crate) fn write_u64(&mut self, value: u64) -> Result<(), BareError> {
+        expect_error("Failed to encode u64", || {
+            self.writer.write_all(&value.to_le_bytes())?;
+            Ok(())
+        })
+    }
     pub(crate) fn write_data(&mut self, buf: &[u8]) -> Result<(), BareError> {
         expect_error("Failed to encode data", || {
             self.write_uint(buf.len() as u64)?;
@@ -128,7 +132,6 @@ mod test {
 
     use super::BareDecoder;
     use super::BareError;
-    use super::Uint;
 
     #[test]
     fn decode_uint() -> Result<(), BareError> {
@@ -142,13 +145,13 @@ mod test {
             0xff, 0x01, // 255,
         ];
         let mut d = BareDecoder::new(&buf[..]);
-        assert_eq!(Uint(0), d.read_uint()?);
-        assert_eq!(Uint(1), d.read_uint()?);
-        assert_eq!(Uint(126), d.read_uint()?);
-        assert_eq!(Uint(127), d.read_uint()?);
-        assert_eq!(Uint(128), d.read_uint()?);
-        assert_eq!(Uint(129), d.read_uint()?);
-        assert_eq!(Uint(255), d.read_uint()?);
+        assert_eq!(0, d.read_uint()?);
+        assert_eq!(1, d.read_uint()?);
+        assert_eq!(126, d.read_uint()?);
+        assert_eq!(127, d.read_uint()?);
+        assert_eq!(128, d.read_uint()?);
+        assert_eq!(129, d.read_uint()?);
+        assert_eq!(255, d.read_uint()?);
         Ok(())
     }
     #[test]
@@ -255,6 +258,34 @@ mod test {
         e.write_u32(0)?;
         e.write_u32(1)?;
         e.write_u32(255)?;
+        assert_eq!(&buf, ob.as_slice());
+        Ok(())
+    }
+    #[test]
+    fn decode_u64() -> Result<(), BareError> {
+        let buf = [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 1
+            0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 255,
+        ];
+        let mut d = BareDecoder::new(&buf[..]);
+        assert_eq!(0, d.read_u64()?);
+        assert_eq!(1, d.read_u64()?);
+        assert_eq!(255, d.read_u64()?);
+        Ok(())
+    }
+    #[test]
+    fn encode_u64() -> Result<(), BareError> {
+        let buf = [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 0
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 1
+            0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 255,
+        ];
+        let mut ob = vec![];
+        let mut e = BareEncoder::new(&mut ob);
+        e.write_u64(0)?;
+        e.write_u64(1)?;
+        e.write_u64(255)?;
         assert_eq!(&buf, ob.as_slice());
         Ok(())
     }

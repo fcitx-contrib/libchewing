@@ -83,5 +83,7 @@ pub mod conversion;
 pub mod dictionary;
 pub mod editor;
 pub mod input;
+pub mod model;
 pub mod path;
+pub mod user;
 pub mod zhuyin;

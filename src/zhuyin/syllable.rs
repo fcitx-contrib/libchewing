@@ -6,8 +6,29 @@ use std::{
     str::FromStr,
 };
 
+use tinyvec::TinyVec;
+
 use super::{Bopomofo, BopomofoKind};
 use crate::exn::{Exn, ResultExt};
+
+pub(crate) type SyllableVec = TinyVec<[Syllable; 5]>;
+
+pub(crate) fn parse_syllable_vec(input: &str) -> Result<SyllableVec, ParseSyllableError> {
+    let mut res = SyllableVec::new();
+    let mut builder = SyllableBuilder::new();
+    for ch in input.chars() {
+        if ch.is_whitespace() {
+            res.push(builder.build());
+            builder = SyllableBuilder::new();
+            continue;
+        }
+        let bopomofo: Bopomofo = Bopomofo::try_from(ch).or_raise(|| ParseSyllableError::new())?;
+        builder = builder
+            .insert(bopomofo)
+            .or_raise(|| ParseSyllableError::new())?;
+    }
+    Ok(res)
+}
 
 /// The consonants and vowels that are taken together to make a single sound.
 ///
