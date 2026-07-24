@@ -85,5 +85,6 @@ pub mod editor;
 pub mod input;
 pub mod model;
 pub mod path;
+pub mod sys;
 pub mod user;
 pub mod zhuyin;

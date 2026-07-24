@@ -10,19 +10,20 @@ type StaticDictFileMagic struct {
 type StaticDictFile union {StaticDictFileV1}
 
 type StaticDictFileV1 struct {
-    header: StaticDictHeaderV1
-    index: StaticDictIndexV1
+    header: StaticDictHeader
+    index: data
+    words: data
 }
 
-type StaticDictHeaderV1 struct {
+type StaticDictHeader struct {
     flags: u32
 }
 
-type StaticDictIndexV1 struct {
-    nodes: list<StaticDictIndexNodeV1>
+type StaticDictIndex struct {
+    nodes: list<StaticDictIndexNode>
 }
 
-type StaticDictIndexNodeV1 struct {
+type StaticDictIndexNode struct {
     child_start: u32
     child_len: u16
     syllable: u16
@@ -30,7 +31,7 @@ type StaticDictIndexNodeV1 struct {
 
 # If the last 2 bytes are all zeros then the node can be
 # reinterpreted as a leaf node.
-type StaticDictIndexLeafNodeV1 struct {
+type StaticDictIndexLeafNode struct {
     data_start: u32
     data_len: u16
     reserved: u16
