@@ -50,3 +50,10 @@ impl WordId {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Seg {
+    Word(WordId),
+    Char(char),
+    None,
+}

@@ -12,9 +12,11 @@ pub(crate) use self::symbol::{full_width_symbol_input, special_symbol_input};
 use crate::{dictionary::Dictionary, zhuyin::Syllable};
 
 mod chewing;
+mod decoder;
 mod fuzzy;
 mod simple;
 mod symbol;
+mod word_lattice;
 
 /// Converts a composition buffer to list of intervals.
 ///

@@ -8,6 +8,7 @@ use smol_str::SmolStr;
 use tinyvec::{TinyVec, tiny_vec};
 
 use crate::{
+    dictionary::LookupStrategy,
     model::WordId,
     zhuyin::{Syllable, SyllableVec},
 };
@@ -46,6 +47,13 @@ impl IndexedDict {
         wids.iter()
             .find(|wid| self.widx.get(wid).is_some_and(|w| w == word))
             .copied()
+    }
+    pub(crate) fn lookup(
+        &self,
+        syllables: &[Syllable],
+        _strategy: LookupStrategy,
+    ) -> TinyVec<[WordId; 3]> {
+        self.sidx.get(syllables).cloned().unwrap_or_default()
     }
     /// Returns an iterator for all (syllable, word) pairs
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&SyllableVec, &SmolStr)> {

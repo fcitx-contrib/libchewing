@@ -7,8 +7,10 @@ use std::{
 
 use scoped_error::{expect_error, impl_context_error};
 use smol_str::{SmolStr, ToSmolStr};
+use tinyvec::TinyVec;
 
 use crate::{
+    dictionary::LookupStrategy,
     model::WordId,
     user::indexed_dict::IndexedDict,
     zhuyin::{Syllable, SyllableVec, parse_syllable_vec},
@@ -75,6 +77,17 @@ impl UserDict {
             .read()
             .expect("Unable to acquire UserDict reader lock");
         lock.get_wid(syllables, word)
+    }
+    pub(crate) fn lookup(
+        &self,
+        syllables: &[Syllable],
+        strategy: LookupStrategy,
+    ) -> TinyVec<[WordId; 3]> {
+        let lock = self
+            .inner
+            .read()
+            .expect("Unable to acquire UserDict reader lock");
+        lock.lookup(syllables, strategy)
     }
 }
 

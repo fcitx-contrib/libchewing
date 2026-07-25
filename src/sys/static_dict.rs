@@ -142,7 +142,7 @@ impl StaticDict {
         })
     }
 
-    fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<WordId> {
+    pub(crate) fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<WordId> {
         let dict = self.index.as_ref();
         let data = self.words.as_ref();
 

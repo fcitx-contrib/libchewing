@@ -10,11 +10,12 @@ use std::{
 use log::warn;
 use scoped_error::{bail, expect_error, impl_context_error};
 use smol_str::{SmolStr, ToSmolStr};
-use tinyvec::tiny_vec;
+use tinyvec::{TinyVec, tiny_vec};
 
 use super::IndexedDict;
 use crate::{
     bare::{BareDecoder, BareEncoder},
+    dictionary::LookupStrategy,
     model::WordId,
     zhuyin::Syllable,
 };
@@ -119,6 +120,17 @@ impl HistoryDict {
             .read()
             .expect("Unable to acquire UserVocab reader lock");
         lock.get_wid(syllables, word)
+    }
+    pub(crate) fn lookup(
+        &self,
+        syllables: &[Syllable],
+        strategy: LookupStrategy,
+    ) -> TinyVec<[WordId; 3]> {
+        let lock = self
+            .inner
+            .read()
+            .expect("Unable to acquire UserDict reader lock");
+        lock.lookup(syllables, strategy)
     }
 }
 

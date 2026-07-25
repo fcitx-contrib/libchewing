@@ -1,4 +1,4 @@
-use std::{fmt::Debug, fs, io, path::Path};
+use std::{collections::BTreeMap, fmt::Debug, fs, io, path::Path};
 
 /// Fast and compact indexing of LF delimited strings
 pub struct StringTable {
@@ -61,6 +61,17 @@ impl StringTable {
         let s = offset;
         let e = offset_1;
         Some(&self.buffer[s..e].trim_ascii_end())
+    }
+    /// Creates an inverse map from strings to indexes
+    pub fn to_map(&self) -> BTreeMap<&str, u32> {
+        let mut map = BTreeMap::new();
+        for i in 0..self.offset.len() {
+            let i = i as u32;
+            if let Some(string) = self.get(i) {
+                map.insert(string, i);
+            }
+        }
+        map
     }
 }
 
