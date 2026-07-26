@@ -5,8 +5,8 @@ use log::trace;
 use crate::{
     conversion::{Composition, Gap, Symbol},
     dictionary::LookupStrategy,
+    lm::StaticDict,
     model::Seg,
-    sys::StaticDict,
     user::{HistoryDict, UserDict},
     zhuyin::Syllable,
 };
