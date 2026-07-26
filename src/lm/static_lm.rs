@@ -1,0 +1,220 @@
+//! Bigram + unigram in compressed sparse row format
+//!
+//! Ref: <https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_row_(CSR,_CRS_or_Yale_format)>
+
+use std::{
+    collections::BTreeMap,
+    io::{Read, Write},
+};
+
+use log::warn;
+use scoped_error::{bail, expect_error, impl_context_error};
+
+use crate::bare::{BareDecoder, BareEncoder};
+
+pub(crate) struct StaticLm {
+    row_index: Box<[u8]>,
+    col_index: Box<[u8]>,
+    values: Box<[u8]>,
+}
+
+impl StaticLm {
+    pub(crate) fn from_reader<R>(reader: R) -> Result<StaticLm, StaticLmError>
+    where
+        R: Read,
+    {
+        expect_error("Failed to read static language model", || {
+            let mut decoder = BareDecoder::new(reader);
+
+            // Read file magic
+            let magic = decoder.read_data_exact(4)?;
+            if magic != b"CHLM" {
+                bail!("Unknown file format");
+            }
+            // Read file version
+            let version = decoder.read_uint()?;
+            if version != 0 {
+                bail!("Unknown file version");
+            }
+            // Read header flags
+            let flags = decoder.read_u32()?;
+            if flags != 0 {
+                warn!("Unknown StaticLm flags {:x}", flags);
+            }
+            let num_rows = decoder.read_u32()?;
+            let num_values = decoder.read_u64()?;
+            // Read data
+            let row_index = decoder
+                .read_data_exact((num_rows + 1) as usize * size_of::<u32>())?
+                .into_boxed_slice();
+            let col_index = decoder
+                .read_data_exact(num_values as usize * size_of::<u32>())?
+                .into_boxed_slice();
+            let values = decoder
+                .read_data_exact(num_values as usize)?
+                .into_boxed_slice();
+
+            Ok(StaticLm {
+                values,
+                col_index,
+                row_index,
+            })
+        })
+    }
+    #[allow(unsafe_code)]
+    fn view(&self) -> (&[u32], &[u32], &[u8]) {
+        // SAFETY: it's safe to transmute [u8; 4] to u32
+        let (_, row_index, _) = unsafe { self.row_index.align_to::<u32>() };
+        // SAFETY: it's safe to transmute [u8; 4] to u32
+        let (_, col_index, _) = unsafe { self.col_index.align_to::<u32>() };
+        (row_index, col_index, &self.values)
+    }
+    pub(crate) fn get(&self, row: u32, col: u32) -> Option<u8> {
+        let (row_index, col_index, values) = self.view();
+        let row_start = row_index[row as usize] as usize;
+        let row_end = row_index[row as usize + 1] as usize;
+        let cols = &col_index[row_start..row_end];
+        let vals = &values[row_start..row_end];
+        cols.iter().position(|c| *c == col).map(|pos| vals[pos])
+    }
+}
+
+pub(crate) struct StaticLmBuilder {
+    matrix: BTreeMap<(u32, u32), u64>,
+    rows: u32,
+    num_values: u64,
+    total: u64,
+}
+
+impl StaticLmBuilder {
+    pub(crate) fn new() -> StaticLmBuilder {
+        StaticLmBuilder {
+            matrix: BTreeMap::new(),
+            rows: 0,
+            num_values: 0,
+            total: 0,
+        }
+    }
+    pub(crate) fn observe(&mut self, row: u32, col: u32, value: u32) {
+        self.matrix
+            .entry((row, col))
+            .and_modify(|e| *e += value as u64)
+            .or_insert(value as u64);
+        self.rows = self.rows.max(row + 1);
+        self.total += value as u64;
+    }
+    pub(crate) fn to_writer<W>(&self, writer: W) -> Result<(), StaticLmError>
+    where
+        W: Write,
+    {
+        expect_error("Failed to serialize StaticLm", || {
+            let mut encoder = BareEncoder::new(writer);
+
+            let q_matrix: BTreeMap<(u32, u32), u8> = self
+                .matrix
+                .iter()
+                .filter_map(|(&k, &v)| {
+                    let p_log2 = ((v as f32) / (self.total as f32)).log2();
+                    let quantized = quantize_log2_prob(p_log2);
+                    if quantized == 0 {
+                        None
+                    } else {
+                        Some((k, quantized))
+                    }
+                })
+                .collect();
+
+            // Write file magic
+            encoder.write_data_exact(b"CHLM")?;
+            // Write version
+            encoder.write_uint(0)?;
+            // Write header flags
+            encoder.write_u32(0)?;
+            // Write num_rows
+            encoder.write_u32(self.rows)?;
+            // Write num_values
+            encoder.write_u64(q_matrix.len() as u64)?;
+
+            // Write row index
+            let mut offset = 0;
+            let mut current_row = 0;
+            for (row, _) in q_matrix.keys() {
+                if *row == current_row {
+                    encoder.write_u32(offset)?;
+                    current_row += 1;
+                }
+                offset += 1;
+            }
+            encoder.write_u32(offset)?;
+            // Write col index
+            for (_, col) in q_matrix.keys() {
+                encoder.write_u32(*col)?;
+            }
+            // Write quantized values
+            for value in q_matrix.values() {
+                encoder.write_u8(*value)?;
+            }
+
+            Ok(())
+        })
+    }
+}
+
+const MIN_LOG2: f32 = -16.0;
+
+fn quantize_log2_prob(p_log2: f32) -> u8 {
+    let clamped = p_log2.clamp(MIN_LOG2, 0.0);
+    let normalized = (clamped - MIN_LOG2) / -MIN_LOG2;
+    let quantized = (normalized * 255.0) as u8;
+    quantized
+}
+
+fn dequantize_log2_prob(q_val: u8) -> f32 {
+    let normalized = q_val as f32 / 255.0;
+    MIN_LOG2 + (normalized * -MIN_LOG2)
+}
+
+impl_context_error!(StaticLmError);
+
+#[cfg(test)]
+mod test {
+    use crate::lm::static_lm::StaticLm;
+
+    use super::StaticLmBuilder;
+
+    #[test]
+    fn build_static_lm() {
+        let mut builder = StaticLmBuilder::new();
+        let mut buf: Vec<u8> = vec![];
+        builder.observe(0, 0, 5);
+        builder.observe(1, 1, 8);
+        builder.observe(2, 2, 3);
+        builder.observe(3, 1, 6);
+        builder.observe(3, 2, 0);
+        builder.to_writer(&mut buf).unwrap();
+
+        assert_eq!(
+            &[
+                b'C', b'H', b'L', b'M', 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0,
+                0, 1, 0, 0, 0, 220, 231, 209, 225
+            ][..],
+            &buf
+        );
+    }
+    #[test]
+    fn read_static_lm() {
+        let lm = &[
+            b'C', b'H', b'L', b'M', 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1,
+            0, 0, 0, 220, 231, 209, 225,
+        ][..];
+        let static_lm = StaticLm::from_reader(lm).unwrap();
+
+        assert_eq!(Some(220), static_lm.get(0, 0));
+        assert_eq!(Some(231), static_lm.get(1, 1));
+        assert_eq!(Some(209), static_lm.get(2, 2));
+        assert_eq!(Some(225), static_lm.get(3, 1));
+        assert_eq!(None, static_lm.get(2, 1));
+    }
+}

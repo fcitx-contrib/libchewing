@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     conversion::word_lattice::{Edge, WordLattice},
+    lm::static_lm::StaticLm,
     model::Seg,
     user::{HistoryFreq, UserFreq},
 };
@@ -14,6 +15,7 @@ use crate::{
 pub(crate) struct Decoder {
     user_freq: UserFreq,
     history_freq: HistoryFreq,
+    lm: StaticLm,
 }
 
 #[derive(Debug, Default, Clone)]

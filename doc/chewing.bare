@@ -61,8 +61,8 @@ type StaticLMHeaderV1 struct {
 
 type StaticLMIndexV1 {
     r: list<u32>[num_rows]
-    v: list<u32>[num_values]
     c: list<u32>[num_values]
+    v: list<u8>[num_values]
 }
 
 # history_freq.bin
