@@ -83,7 +83,8 @@ pub(crate) struct StaticLmBuilder {
     matrix: BTreeMap<(u32, u32), u64>,
     rows: u32,
     num_values: u64,
-    total: u64,
+    unigram_total: u64,
+    bigram_total: u64,
 }
 
 impl StaticLmBuilder {
@@ -92,7 +93,8 @@ impl StaticLmBuilder {
             matrix: BTreeMap::new(),
             rows: 0,
             num_values: 0,
-            total: 0,
+            unigram_total: 0,
+            bigram_total: 0,
         }
     }
     pub(crate) fn observe(&mut self, row: u32, col: u32, value: u32) {
@@ -101,7 +103,11 @@ impl StaticLmBuilder {
             .and_modify(|e| *e += value as u64)
             .or_insert(value as u64);
         self.rows = self.rows.max(row + 1);
-        self.total += value as u64;
+        if row == 0 {
+            self.unigram_total += value as u64;
+        } else {
+            self.bigram_total += value as u64;
+        }
     }
     pub(crate) fn to_writer<W>(&self, writer: W) -> Result<(), StaticLmError>
     where
@@ -114,7 +120,12 @@ impl StaticLmBuilder {
                 .matrix
                 .iter()
                 .filter_map(|(&k, &v)| {
-                    let p_log2 = ((v as f32) / (self.total as f32)).log2();
+                    let total = if k.0 == 0 {
+                        self.unigram_total
+                    } else {
+                        self.bigram_total
+                    };
+                    let p_log2 = ((v as f32) / (total as f32)).log2();
                     let quantized = quantize_log2_prob(p_log2);
                     if quantized == 0 {
                         None
@@ -197,7 +208,7 @@ mod test {
             &[
                 b'C', b'H', b'L', b'M', 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0,
-                0, 1, 0, 0, 0, 220, 231, 209, 225
+                0, 1, 0, 0, 0, 255, 237, 215, 231
             ][..],
             &buf
         );

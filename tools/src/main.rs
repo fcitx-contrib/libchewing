@@ -3,6 +3,7 @@ use clap::Parser;
 
 mod dump;
 mod flags;
+mod index;
 mod info;
 mod init_database;
 
@@ -24,6 +25,11 @@ fn main() -> Result<()> {
         flags::ChewingCliCmd::InitDatabase(args) => init_database::run(args)?,
         flags::ChewingCliCmd::Info(args) => info::run(args)?,
         flags::ChewingCliCmd::Dump(args) => dump::run(args)?,
+        flags::ChewingCliCmd::Index(sub) => match sub {
+            flags::Index::Create(args) => {
+                index::create_index(&args.tsi_csv, &args.words_txt, &args.output)?
+            }
+        },
     }
     Ok(())
 }

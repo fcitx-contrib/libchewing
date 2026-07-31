@@ -19,6 +19,25 @@ pub(crate) enum ChewingCliCmd {
     Info(Info),
     /// Dump the dictionary entries into tsi.src formatted stream
     Dump(Dump),
+    /// Subcommands for dictionary index manipulation
+    #[command(subcommand)]
+    Index(Index),
+}
+
+#[derive(Subcommand)]
+pub(crate) enum Index {
+    /// Create dictionary index file
+    Create(IndexCreate),
+}
+
+#[derive(Args)]
+pub(crate) struct IndexCreate {
+    /// Path to the dictionary source file (tsi.csv)
+    pub(crate) tsi_csv: PathBuf,
+    /// Path to the words list (static_words.txt)
+    pub(crate) words_txt: PathBuf,
+    /// Path to the output file (static_dict.bin)
+    pub(crate) output: PathBuf,
 }
 
 #[derive(Args)]
