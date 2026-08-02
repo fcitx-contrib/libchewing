@@ -1,6 +1,6 @@
 //! Common models shared by all components
 
-use std::ops::Deref;
+use std::{fmt::Display, ops::Deref};
 
 /// Locally unique id for a word
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -10,6 +10,12 @@ impl Deref for WordId {
     type Target = u32;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Display for WordId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 

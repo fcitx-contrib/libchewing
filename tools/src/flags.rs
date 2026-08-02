@@ -22,6 +22,9 @@ pub(crate) enum ChewingCliCmd {
     /// Subcommands for dictionary index manipulation
     #[command(subcommand)]
     Index(Index),
+    /// Subcommands for language model manipulation
+    #[command(subcommand)]
+    Lm(Lm),
 }
 
 #[derive(Subcommand)]
@@ -37,6 +40,22 @@ pub(crate) struct IndexCreate {
     /// Path to the words list (static_words.txt)
     pub(crate) words_txt: PathBuf,
     /// Path to the output file (static_dict.bin)
+    pub(crate) output: PathBuf,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum Lm {
+    /// Create binary language model from ARPA file
+    Compile(LmCompile),
+}
+
+#[derive(Args)]
+pub(crate) struct LmCompile {
+    /// Path to the language model ARPA file (static_lm.arpa)
+    pub(crate) lm_arpa: PathBuf,
+    /// Path to the words list (static_words.txt)
+    pub(crate) words_txt: PathBuf,
+    /// Path to the output file (static_lm.bin)
     pub(crate) output: PathBuf,
 }
 

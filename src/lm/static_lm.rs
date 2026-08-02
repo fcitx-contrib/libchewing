@@ -5,21 +5,25 @@
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
+    ops::Neg,
 };
 
 use log::warn;
 use scoped_error::{bail, expect_error, impl_context_error};
 
-use crate::bare::{BareDecoder, BareEncoder};
+use crate::{
+    bare::{BareDecoder, BareEncoder},
+    model::WordId,
+};
 
-pub(crate) struct StaticLm {
+pub struct StaticLm {
     row_index: Box<[u8]>,
     col_index: Box<[u8]>,
     values: Box<[u8]>,
 }
 
 impl StaticLm {
-    pub(crate) fn from_reader<R>(reader: R) -> Result<StaticLm, StaticLmError>
+    pub fn from_reader<R>(reader: R) -> Result<StaticLm, StaticLmError>
     where
         R: Read,
     {
@@ -69,7 +73,7 @@ impl StaticLm {
         let (_, col_index, _) = unsafe { self.col_index.align_to::<u32>() };
         (row_index, col_index, &self.values)
     }
-    pub(crate) fn get(&self, row: u32, col: u32) -> Option<u8> {
+    pub fn get(&self, row: u32, col: u32) -> Option<u8> {
         let (row_index, col_index, values) = self.view();
         let row_start = row_index[row as usize] as usize;
         let row_end = row_index[row as usize + 1] as usize;
@@ -79,25 +83,24 @@ impl StaticLm {
     }
 }
 
-pub(crate) struct StaticLmBuilder {
+#[derive(Debug)]
+pub struct StaticLmBuilder {
     matrix: BTreeMap<(u32, u32), u64>,
     rows: u32,
-    num_values: u64,
     unigram_total: u64,
     bigram_total: u64,
 }
 
 impl StaticLmBuilder {
-    pub(crate) fn new() -> StaticLmBuilder {
+    pub fn new() -> StaticLmBuilder {
         StaticLmBuilder {
             matrix: BTreeMap::new(),
             rows: 0,
-            num_values: 0,
             unigram_total: 0,
             bigram_total: 0,
         }
     }
-    pub(crate) fn observe(&mut self, row: u32, col: u32, value: u32) {
+    pub fn observe(&mut self, row: u32, col: u32, value: u32) {
         self.matrix
             .entry((row, col))
             .and_modify(|e| *e += value as u64)
@@ -109,7 +112,100 @@ impl StaticLmBuilder {
             self.bigram_total += value as u64;
         }
     }
-    pub(crate) fn to_writer<W>(&self, writer: W) -> Result<(), StaticLmError>
+    pub fn to_writer<W>(&self, writer: W) -> Result<(), StaticLmError>
+    where
+        W: Write,
+    {
+        expect_error("Failed to serialize StaticLm", || {
+            let mut encoder = BareEncoder::new(writer);
+
+            let q_matrix: BTreeMap<(u32, u32), f64> = self
+                .matrix
+                .iter()
+                .filter_map(|(&k, &v)| {
+                    let total = if k.0 == 0 {
+                        self.unigram_total
+                    } else {
+                        self.bigram_total
+                    };
+                    let log10_prob = ((v as f64) / (total as f64)).log10();
+                    // let quantized = quantize_log2_prob(p_log2);
+                    // if quantized == 0 {
+                    //     None
+                    // } else {
+                    Some((k, log10_prob))
+                    // }
+                })
+                .collect();
+
+            // Write file magic
+            encoder.write_data_exact(b"CHLM")?;
+            // Write version
+            encoder.write_uint(0)?;
+            // Write header flags
+            encoder.write_u32(0)?;
+            // Write num_rows
+            encoder.write_u32(self.rows)?;
+            // Write num_values
+            encoder.write_u64(q_matrix.len() as u64)?;
+
+            // Write row index
+            let mut offset = 0;
+            let mut current_row = 0;
+            for (row, _) in q_matrix.keys() {
+                if *row == current_row {
+                    encoder.write_u32(offset)?;
+                    current_row += 1;
+                }
+                offset += 1;
+            }
+            encoder.write_u32(offset)?;
+            // Write col index
+            for (_, col) in q_matrix.keys() {
+                encoder.write_u32(*col)?;
+            }
+            // Write quantized values
+            // for value in q_matrix.values() {
+            //     encoder.write_u8(*value)?;
+            // }
+
+            Ok(())
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct StaticLmCompiler {
+    matrix: BTreeMap<(WordId, WordId), f64>,
+    rows: u32,
+    unigram_len: u64,
+    bigram_len: u64,
+}
+
+impl StaticLmCompiler {
+    pub fn new() -> StaticLmCompiler {
+        StaticLmCompiler {
+            matrix: BTreeMap::new(),
+            rows: 0,
+            unigram_len: 0,
+            bigram_len: 0,
+        }
+    }
+    pub fn insert(&mut self, row: WordId, col: WordId, value: f64) -> Result<(), StaticLmError> {
+        expect_error("Failed to compile language model", || {
+            if let Some(_) = self.matrix.insert((row, col), value) {
+                bail!("Multiple entries for ({}, {})", row, col);
+            }
+            self.rows = self.rows.max(row.0 + 1);
+            if row.0 == 0 {
+                self.unigram_len += 1;
+            } else {
+                self.bigram_len += 1;
+            }
+            Ok(())
+        })
+    }
+    pub fn to_writer<W>(&self, writer: W) -> Result<(), StaticLmError>
     where
         W: Write,
     {
@@ -119,18 +215,12 @@ impl StaticLmBuilder {
             let q_matrix: BTreeMap<(u32, u32), u8> = self
                 .matrix
                 .iter()
-                .filter_map(|(&k, &v)| {
-                    let total = if k.0 == 0 {
-                        self.unigram_total
-                    } else {
-                        self.bigram_total
-                    };
-                    let p_log2 = ((v as f32) / (total as f32)).log2();
-                    let quantized = quantize_log2_prob(p_log2);
+                .filter_map(|(&k, &log10_prob)| {
+                    let quantized = quantize_log_prob(log10_prob);
                     if quantized == 0 {
                         None
                     } else {
-                        Some((k, quantized))
+                        Some(((k.0.0, k.1.0), quantized))
                     }
                 })
                 .collect();
@@ -171,21 +261,16 @@ impl StaticLmBuilder {
     }
 }
 
-const MIN_LOG2: f32 = -16.0;
+const MIN_LOGLOG: f64 = -0.3;
+const MAX_LOGLOG: f64 = 1.3;
 
-fn quantize_log2_prob(p_log2: f32) -> u8 {
-    let clamped = p_log2.clamp(MIN_LOG2, 0.0);
-    let normalized = (clamped - MIN_LOG2) / -MIN_LOG2;
-    let quantized = (normalized * 255.0) as u8;
+pub(crate) fn quantize_log_prob(log10prob: f64) -> u8 {
+    let loglog = log10prob.neg().log10().clamp(MIN_LOGLOG, MAX_LOGLOG);
+    let quantized = ((loglog - MIN_LOGLOG) / (MAX_LOGLOG - MIN_LOGLOG) * 255.0) as u8;
     quantized
 }
 
-fn dequantize_log2_prob(q_val: u8) -> f32 {
-    let normalized = q_val as f32 / 255.0;
-    MIN_LOG2 + (normalized * -MIN_LOG2)
-}
-
-impl_context_error!(StaticLmError);
+impl_context_error!(pub StaticLmError);
 
 #[cfg(test)]
 mod test {

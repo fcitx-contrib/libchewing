@@ -6,6 +6,7 @@ mod flags;
 mod index;
 mod info;
 mod init_database;
+mod lm;
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -28,6 +29,11 @@ fn main() -> Result<()> {
         flags::ChewingCliCmd::Index(sub) => match sub {
             flags::Index::Create(args) => {
                 index::create_index(&args.tsi_csv, &args.words_txt, &args.output)?
+            }
+        },
+        flags::ChewingCliCmd::Lm(sub) => match sub {
+            flags::Lm::Compile(args) => {
+                lm::compile_lm(&args.lm_arpa, &args.words_txt, &args.output)?;
             }
         },
     }
