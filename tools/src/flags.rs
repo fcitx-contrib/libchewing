@@ -47,6 +47,8 @@ pub(crate) struct IndexCreate {
 pub(crate) enum Lm {
     /// Create binary language model from ARPA file
     Compile(LmCompile),
+    /// Segment a string
+    Segment(LmSegment),
 }
 
 #[derive(Args)]
@@ -57,6 +59,14 @@ pub(crate) struct LmCompile {
     pub(crate) words_txt: PathBuf,
     /// Path to the output file (static_lm.bin)
     pub(crate) output: PathBuf,
+}
+
+#[derive(Args)]
+pub(crate) struct LmSegment {
+    /// Path to the language model file (static_lm.bin)
+    pub(crate) static_lm: PathBuf,
+    /// Path to the words list (static_words.txt)
+    pub(crate) words_txt: PathBuf,
 }
 
 #[derive(Args)]

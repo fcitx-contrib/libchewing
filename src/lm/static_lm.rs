@@ -16,6 +16,7 @@ use crate::{
     model::WordId,
 };
 
+#[derive(Debug)]
 pub struct StaticLm {
     row_index: Box<[u8]>,
     col_index: Box<[u8]>,
@@ -75,8 +76,8 @@ impl StaticLm {
     }
     pub fn get(&self, row: u32, col: u32) -> Option<u8> {
         let (row_index, col_index, values) = self.view();
-        let row_start = row_index[row as usize] as usize;
-        let row_end = row_index[row as usize + 1] as usize;
+        let row_start = *row_index.get(row as usize)? as usize;
+        let row_end = *row_index.get(row as usize + 1)? as usize;
         let cols = &col_index[row_start..row_end];
         let vals = &values[row_start..row_end];
         cols.iter().position(|c| *c == col).map(|pos| vals[pos])

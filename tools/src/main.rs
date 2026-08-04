@@ -35,6 +35,9 @@ fn main() -> Result<()> {
             flags::Lm::Compile(args) => {
                 lm::compile_lm(&args.lm_arpa, &args.words_txt, &args.output)?;
             }
+            flags::Lm::Segment(args) => {
+                lm::segment(&args.static_lm, &args.words_txt)?;
+            }
         },
     }
     Ok(())

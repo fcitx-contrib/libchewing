@@ -12,36 +12,52 @@ use crate::{
     user::{HistoryFreq, UserFreq},
 };
 
-pub(crate) struct Decoder {
-    user_freq: UserFreq,
-    history_freq: HistoryFreq,
-    lm: StaticLm,
+#[derive(Debug)]
+pub struct Decoder {
+    pub user_freq: UserFreq,
+    pub history_freq: HistoryFreq,
+    pub lm: StaticLm,
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Hypothesis {
-    pub(crate) edges: Vec<Edge>,
+pub struct Hypothesis {
+    pub edges: Vec<Edge>,
 }
 
 impl Decoder {
-    pub(crate) const MAX_OUT_HYPOTHESES: usize = 10;
+    pub(crate) const MAX_OUT_HYPOTHESES: u8 = 10;
 
-    pub(crate) fn decode(lattice: &WordLattice) -> Vec<Hypothesis> {
+    pub fn decode(&self, lattice: &WordLattice) -> Vec<Hypothesis> {
         if lattice.edges.is_empty() {
             return vec![Hypothesis::default()];
         }
-        let paths = find_k_paths(Self::MAX_OUT_HYPOTHESES, lattice, |w1, w2| 1.0);
+        let paths = find_k_paths(Self::MAX_OUT_HYPOTHESES, lattice, |w1, w2| match (w1, w2) {
+            (Seg::Word(wid1), Seg::Word(wid2)) => {
+                self.lm.get(wid1.0, wid2.0).unwrap_or_default() as f64
+            }
+            (Seg::Word(wid), Seg::Char(_))
+            | (Seg::Word(wid), Seg::None)
+            | (Seg::Char(_), Seg::Word(wid))
+            | (Seg::None, Seg::Word(wid)) => self.lm.get(0, wid.0).unwrap_or_default() as f64,
+            _ => 0.0,
+        });
         debug_assert!(!paths.is_empty());
         paths
     }
 }
 
-struct Hyp<'a> {
-    /// cost so far (source -> node)
-    g: f64,
-    node: u8,
-    /// index into arena, for path reconstruction
-    parent: u8,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct StateCoord {
+    prev: Seg,
+    start: u8,
+    curr: Seg,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StateValue<'a> {
+    cost: f64,
+    times: u8,
+    parent: StateCoord,
     edge: &'a Edge,
 }
 
@@ -51,69 +67,74 @@ struct Hyp<'a> {
 /// Dechter. 2016. Searching for the M best solutions in graphical
 /// models. J. Artif. Int. Res. 55, 1 (January 2016), 889–952.
 /// https://jair.org/index.php/jair/article/view/10995
-fn find_k_paths<F>(k: usize, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
+fn find_k_paths<F>(k: u8, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
 where
     F: Fn(Seg, Seg) -> f64,
 {
     let h = future_cost(lattice, &cost_fn);
     let len = lattice.len;
-    let mut arena: Vec<Hyp<'_>> = Vec::new();
-    // Min-heap on f = g + h[node]; store Reverse((f_bits, arena_idx)).
+    let mut arena: BTreeMap<StateCoord, StateValue<'_>> = BTreeMap::new();
     let mut open = BinaryHeap::new();
-    let dummy_edge = Edge {
+    let source_state = StateCoord {
+        prev: Seg::None,
         start: 0,
-        end: 0,
-        seg: Seg::None,
+        curr: Seg::None,
     };
+    arena.insert(
+        source_state,
+        StateValue {
+            cost: 0.0,
+            times: 0,
+            parent: source_state,
+            edge: &Edge {
+                start: 0,
+                end: 0,
+                seg: Seg::None,
+            },
+        },
+    );
+    open.push(Reverse((OrderedF64(h[0]), source_state)));
 
-    arena.push(Hyp {
-        g: 0.0,
-        node: 0,
-        parent: u8::MAX,
-        edge: &dummy_edge,
-    });
-    open.push(Reverse((OrderedF64(h[0]), 0u8)));
+    let mut results = Vec::with_capacity(k as usize);
 
-    // How many times a node has been visited
-    let mut closed: BTreeMap<u8, u8> = BTreeMap::new();
-    let mut results = Vec::with_capacity(k);
-
-    while let Some(Reverse((_, idx))) = open.pop() {
-        let (node, g) = (arena[idx as usize].node, arena[idx as usize].g);
-        if let Some(&times) = closed.get(&node) {
-            if times as usize >= k {
-                // a cheaper path to this node already won
-                continue;
-            } else {
-                closed.insert(node, times + 1);
-            }
+    while let Some(Reverse((_, coord))) = open.pop() {
+        let mut state = *arena.get(&coord).expect("");
+        if state.times >= k {
+            continue;
+        } else {
+            state.times += 1;
+            arena.insert(coord, state);
         }
 
-        if node as usize == len {
-            // a new distinct reading
-            results.push(reconstruct(&arena, idx));
-            if results.len() == k {
+        if state.edge.end as usize == len {
+            results.push(reconstruct(&arena, coord));
+            if results.len() == k as usize {
                 break;
             }
             continue;
         }
 
-        for e in &lattice.edges[node as usize] {
-            // Prune states already finalized (cheaper)
-            if let Some(&times) = closed.get(&e.end) {
-                if times as usize >= k {
-                    continue;
+        for e in &lattice.edges[state.edge.end as usize] {
+            let cost = state.cost + cost_fn(state.edge.seg, e.seg);
+            let next_coord = StateCoord {
+                prev: state.edge.seg,
+                start: state.edge.end,
+                curr: e.seg,
+            };
+            let next_state = StateValue {
+                cost,
+                times: 0,
+                parent: coord,
+                edge: e,
+            };
+            if let Some(v) = arena.get(&next_coord) {
+                if v.times < k && v.cost > cost {
+                    arena.insert(next_coord, next_state);
                 }
+            } else {
+                arena.insert(next_coord, next_state);
             }
-            let ng = g + cost_fn(arena[idx as usize].edge.seg, e.seg);
-            let child = arena.len() as u8;
-            arena.push(Hyp {
-                g: ng,
-                node: e.end,
-                parent: idx,
-                edge: &e,
-            });
-            open.push(Reverse((OrderedF64(ng + h[e.end as usize]), child)));
+            open.push(Reverse((OrderedF64(cost + h[e.end as usize]), next_coord)));
         }
     }
     results
@@ -122,18 +143,14 @@ where
         .collect()
 }
 
-fn reconstruct(arena: &[Hyp<'_>], idx: u8) -> Vec<Edge> {
-    let mut idx = idx as usize;
+fn reconstruct(arena: &BTreeMap<StateCoord, StateValue<'_>>, mut coord: StateCoord) -> Vec<Edge> {
     let mut edges = Vec::new();
-    // usize::MAX marks the root sentinel
-    while arena[idx].parent != u8::MAX {
-        let p = arena[idx].parent as usize;
-        edges.push(Edge {
-            start: arena[p].node,
-            end: arena[idx].node,
-            seg: arena[idx].edge.seg,
-        });
-        idx = p;
+    while let Some(v) = arena.get(&coord) {
+        if v.edge.seg == Seg::None {
+            break;
+        }
+        edges.push(*v.edge);
+        coord = v.parent;
     }
     // leaf -> root collected above; flip to source -> sink
     edges.reverse();

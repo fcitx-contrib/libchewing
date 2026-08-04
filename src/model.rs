@@ -57,8 +57,8 @@ impl WordId {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Seg {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Seg {
     Word(WordId),
     Char(char),
     None,

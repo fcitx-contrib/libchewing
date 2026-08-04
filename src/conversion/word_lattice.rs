@@ -6,38 +6,68 @@ use crate::{
     conversion::{Composition, Gap, Symbol},
     dictionary::LookupStrategy,
     lm::StaticDict,
-    model::Seg,
+    model::{Seg, WordId},
     user::{HistoryDict, UserDict},
     zhuyin::Syllable,
 };
 
-pub(crate) struct WordLatticeBuilder {
+pub struct WordLatticeBuilder {
     static_dict: StaticDict,
     user_dict: UserDict,
     history_dict: HistoryDict,
 }
 
-pub(crate) struct WordLattice {
+pub struct WordLattice {
     pub(crate) len: usize,
     pub(crate) edges: Vec<Vec<Edge>>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Edge {
-    pub(crate) start: u8,
-    pub(crate) end: u8,
-    pub(crate) seg: Seg,
+pub struct Edge {
+    pub start: u8,
+    pub end: u8,
+    pub seg: Seg,
+}
+
+// Assume no words in the dictionary are longer than MAX_PHRASE_LEN syllables.
+const MAX_PHRASE_LEN: usize = 15;
+
+impl WordLattice {
+    pub fn from_str<F>(s: &str, find_words: F) -> WordLattice
+    where
+        F: Fn(&str) -> Option<WordId>,
+    {
+        let len = s.chars().count();
+        let mut edges = vec![vec![]; len];
+        for start in 0..len {
+            let max_end = usize::min(start + MAX_PHRASE_LEN, len);
+            for end in (start + 1)..=max_end {
+                let substr: String = s.chars().skip(start).take(end - start).collect();
+                if let Some(wid) = find_words(&substr) {
+                    edges[start].push(Edge {
+                        start: start as u8,
+                        end: end as u8,
+                        seg: Seg::Word(wid),
+                    });
+                } else if (end - start) == 1 {
+                    edges[start].push(Edge {
+                        start: start as u8,
+                        end: end as u8,
+                        seg: Seg::Char(substr.chars().next().unwrap()),
+                    });
+                }
+            }
+        }
+        WordLattice { len, edges }
+    }
 }
 
 impl WordLatticeBuilder {
-    // Assume no words in the dictionary are longer than MAX_PHRASE_LEN syllables.
-    const MAX_PHRASE_LEN: usize = 15;
-
     pub(crate) fn to_lattice(&self, com: &Composition) -> WordLattice {
         let len = com.len();
         let mut edges = vec![vec![]; len];
         for start in 0..com.symbols.len() {
-            let max_end = usize::min(start + Self::MAX_PHRASE_LEN, com.symbols.len());
+            let max_end = usize::min(start + MAX_PHRASE_LEN, com.symbols.len());
             for end in (start + 1)..=max_end {
                 for word in self.find_words(start, &com.symbols[start..end], com) {
                     edges[start].push(Edge {
