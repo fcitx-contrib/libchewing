@@ -58,9 +58,10 @@ impl WordId {
 }
 
 /// A possible intepretation of the input state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Surface {
     Word(WordId),
     Char(char),
+    #[default]
     None,
 }

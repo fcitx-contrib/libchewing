@@ -74,13 +74,16 @@ impl StaticLm {
         let (_, col_index, _) = unsafe { self.col_index.align_to::<u32>() };
         (row_index, col_index, &self.values)
     }
-    pub fn get(&self, row: u32, col: u32) -> Option<u8> {
+    pub fn get(&self, row: u32, col: u32) -> Option<f64> {
         let (row_index, col_index, values) = self.view();
         let row_start = *row_index.get(row as usize)? as usize;
         let row_end = *row_index.get(row as usize + 1)? as usize;
         let cols = &col_index[row_start..row_end];
         let vals = &values[row_start..row_end];
-        cols.iter().position(|c| *c == col).map(|pos| vals[pos])
+        cols.iter()
+            .position(|c| *c == col)
+            .map(|pos| vals[pos])
+            .map(|q| unquantize_log_prob(q))
     }
 }
 
@@ -271,13 +274,29 @@ pub(crate) fn quantize_log_prob(log10prob: f64) -> u8 {
     quantized
 }
 
+pub(crate) fn unquantize_log_prob(quantum: u8) -> f64 {
+    let loglog = (quantum as f64) / 255.0 * (MAX_LOGLOG - MIN_LOGLOG) + MIN_LOGLOG;
+    10.0_f64.powf(loglog).neg()
+}
+
 impl_context_error!(pub StaticLmError);
 
 #[cfg(test)]
 mod test {
-    use crate::lm::static_lm::StaticLm;
+    use std::ops::Sub;
+
+    use crate::lm::static_lm::{StaticLm, quantize_log_prob, unquantize_log_prob};
 
     use super::StaticLmBuilder;
+
+    #[test]
+    fn quantize_unquantize() {
+        let e = 0.6;
+        assert!((0.0 - unquantize_log_prob(quantize_log_prob(0.0))).abs() < e);
+        assert!((-1.0 - unquantize_log_prob(quantize_log_prob(-1.0))).abs() < e);
+        assert!((-5.0 - unquantize_log_prob(quantize_log_prob(-5.0))).abs() < e);
+        assert!((-10.0 - unquantize_log_prob(quantize_log_prob(-10.0))).abs() < e);
+    }
 
     #[test]
     fn build_static_lm() {
@@ -308,10 +327,10 @@ mod test {
         ][..];
         let static_lm = StaticLm::from_reader(lm).unwrap();
 
-        assert_eq!(Some(220), static_lm.get(0, 0));
-        assert_eq!(Some(231), static_lm.get(1, 1));
-        assert_eq!(Some(209), static_lm.get(2, 2));
-        assert_eq!(Some(225), static_lm.get(3, 1));
+        assert!(static_lm.get(0, 0).unwrap().sub(-12.0335).abs() < 1e-3);
+        assert!(static_lm.get(1, 1).unwrap().sub(-14.1062).abs() < 1e-3);
+        assert!(static_lm.get(2, 2).unwrap().sub(-10.2653).abs() < 1e-3);
+        assert!(static_lm.get(3, 1).unwrap().sub(-12.9349).abs() < 1e-3);
         assert_eq!(None, static_lm.get(2, 1));
     }
 }

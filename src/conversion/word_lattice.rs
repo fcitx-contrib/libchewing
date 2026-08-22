@@ -22,7 +22,7 @@ pub struct WordLattice {
     pub(crate) edges: Vec<Vec<Edge>>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Edge {
     pub start: u8,
     pub end: u8,

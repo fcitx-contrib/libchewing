@@ -3,6 +3,7 @@
 use std::{
     cmp::{Ordering, Reverse},
     collections::{BTreeMap, BinaryHeap},
+    ops::Neg,
 };
 
 use crate::{
@@ -34,11 +35,12 @@ impl Decoder {
         let paths = find_k_paths(Self::MAX_OUT_HYPOTHESES, lattice, |w1, w2| match (w1, w2) {
             (Surface::Word(wid1), Surface::Word(wid2)) => {
                 // TODO: Add user history and back-off
-                self.lm.get(wid1.0, wid2.0).unwrap_or_default() as f64
+                self.lm.get(wid1.0, wid2.0).unwrap_or_default().neg()
+                    + self.lm.get(0, wid2.0).unwrap_or_default().neg()
             }
             (Surface::Word(wid), _) | (_, Surface::Word(wid)) => {
                 // Fallback to unigram
-                self.lm.get(0, wid.0).unwrap_or_default() as f64
+                self.lm.get(0, wid.0).unwrap_or_default().neg()
             }
             _ => 0.0,
         });
@@ -47,19 +49,38 @@ impl Decoder {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct StateCoord {
-    prev: Surface,
-    start: u8,
-    curr: Surface,
+#[derive(Debug)]
+struct Path {
+    priority: Reverse<OrderedF64>,
+    cost: f64,
+    front: StateCoord,
+    tid: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct StateValue<'a> {
-    cost: f64,
-    times: u8,
-    parent: StateCoord,
-    edge: &'a Edge,
+impl Eq for Path {}
+
+impl PartialEq for Path {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority.eq(&other.priority)
+    }
+}
+
+impl PartialOrd for Path {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Path {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority.cmp(&other.priority)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct StateCoord {
+    prev: Surface,
+    curr: Edge,
 }
 
 /// Modified m-A* algorithm to find the N-best distinct result strings
@@ -74,68 +95,54 @@ where
 {
     let h = future_cost(lattice, &cost_fn);
     let len = lattice.len;
-    let mut arena: BTreeMap<StateCoord, StateValue<'_>> = BTreeMap::new();
+    let mut counter: BTreeMap<StateCoord, u8> = BTreeMap::new();
+    let mut trails: Vec<(usize, Edge)> = vec![];
     let mut open = BinaryHeap::new();
-    let source_state = StateCoord {
-        prev: Surface::None,
-        start: 0,
-        curr: Surface::None,
-    };
-    arena.insert(
-        source_state,
-        StateValue {
-            cost: 0.0,
-            times: 0,
-            parent: source_state,
-            edge: &Edge {
-                start: 0,
-                end: 0,
-                surface: Surface::None,
-            },
-        },
-    );
-    open.push(Reverse((OrderedF64(h[0]), source_state)));
+
+    counter.insert(StateCoord::default(), 0);
+    trails.push((0, Edge::default()));
+    open.push(Path {
+        priority: Reverse(OrderedF64(h[0])),
+        cost: 0.0,
+        front: StateCoord::default(),
+        tid: 0,
+    });
 
     let mut results = Vec::with_capacity(k as usize);
 
-    while let Some(Reverse((_, coord))) = open.pop() {
-        let mut state = *arena.get(&coord).expect("");
-        if state.times >= k {
+    while let Some(path) = open.pop() {
+        let times = *counter.get(&path.front).expect("");
+        if times >= k {
             continue;
         } else {
-            state.times += 1;
-            arena.insert(coord, state);
+            counter.insert(path.front, times + 1);
         }
 
-        if state.edge.end as usize == len {
-            results.push(reconstruct(&arena, coord));
+        if path.front.curr.end as usize == len {
+            results.push(reconstruct(&trails, path.tid));
             if results.len() == k as usize {
                 break;
             }
             continue;
         }
 
-        for e in &lattice.edges[state.edge.end as usize] {
-            let cost = state.cost + cost_fn(state.edge.surface, e.surface);
-            let next_coord = StateCoord {
-                prev: state.edge.surface,
-                start: state.edge.end,
-                curr: e.surface,
+        for e in &lattice.edges[path.front.curr.end as usize] {
+            let cost = path.cost + cost_fn(path.front.curr.surface, e.surface);
+            let front = StateCoord {
+                prev: path.front.curr.surface,
+                curr: *e,
             };
-            let next_state = StateValue {
+            counter.entry(front).or_insert(0);
+
+            let tid = trails.len();
+            trails.push((path.tid, *e));
+
+            open.push(Path {
+                priority: Reverse(OrderedF64(cost + h[e.end as usize])),
                 cost,
-                times: 0,
-                parent: coord,
-                edge: e,
-            };
-            if let Some(v) = arena.get(&next_coord) {
-                if v.times < k && v.cost > cost {
-                    arena.insert(next_coord, next_state);
-                }
-            } else {
-                arena.insert(next_coord, next_state);
-            }
-            open.push(Reverse((OrderedF64(cost + h[e.end as usize]), next_coord)));
+                front,
+                tid,
+            });
         }
     }
     results
@@ -144,21 +151,21 @@ where
         .collect()
 }
 
-fn reconstruct(arena: &BTreeMap<StateCoord, StateValue<'_>>, mut coord: StateCoord) -> Vec<Edge> {
-    let mut edges = Vec::new();
-    while let Some(v) = arena.get(&coord) {
-        if v.edge.surface == Surface::None {
+fn reconstruct(trails: &[(usize, Edge)], tid: usize) -> Vec<Edge> {
+    let mut index = tid;
+    let mut edges = vec![];
+    while let Some(&(tid, edge)) = trails.get(index) {
+        edges.push(edge);
+        index = tid;
+        if index == 0 {
             break;
         }
-        edges.push(*v.edge);
-        coord = v.parent;
     }
-    // leaf -> root collected above; flip to source -> sink
     edges.reverse();
     edges
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct OrderedF64(f64);
 
 impl Eq for OrderedF64 {}
