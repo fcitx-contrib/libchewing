@@ -6,7 +6,7 @@ use crate::{
     conversion::{Composition, Gap, Symbol},
     dictionary::LookupStrategy,
     lm::StaticDict,
-    model::{Seg, WordId},
+    model::{Surface, WordId},
     user::{HistoryDict, UserDict},
     zhuyin::Syllable,
 };
@@ -26,7 +26,7 @@ pub struct WordLattice {
 pub struct Edge {
     pub start: u8,
     pub end: u8,
-    pub seg: Seg,
+    pub surface: Surface,
 }
 
 // Assume no words in the dictionary are longer than MAX_PHRASE_LEN syllables.
@@ -47,13 +47,13 @@ impl WordLattice {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
-                        seg: Seg::Word(wid),
+                        surface: Surface::Word(wid),
                     });
                 } else if (end - start) == 1 {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
-                        seg: Seg::Char(substr.chars().next().unwrap()),
+                        surface: Surface::Char(substr.chars().next().unwrap()),
                     });
                 }
             }
@@ -73,7 +73,7 @@ impl WordLatticeBuilder {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
-                        seg: word,
+                        surface: word,
                     });
                 }
             }
@@ -81,34 +81,34 @@ impl WordLatticeBuilder {
         WordLattice { len, edges }
     }
 
-    fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<Seg> {
+    fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<Surface> {
         let mut words = vec![];
         words.extend(
             self.user_dict
                 .lookup(syllables, LookupStrategy::Standard)
                 .iter()
-                .map(|w| Seg::Word(*w)),
+                .map(|w| Surface::Word(*w)),
         );
         words.extend(
             self.history_dict
                 .lookup(syllables, LookupStrategy::Standard)
                 .iter()
-                .map(|w| Seg::Word(*w)),
+                .map(|w| Surface::Word(*w)),
         );
         words.extend(
             self.static_dict
                 .lookup(syllables, LookupStrategy::Standard)
                 .iter()
-                .map(|w| Seg::Word(*w)),
+                .map(|w| Surface::Word(*w)),
         );
         words
     }
 
-    fn find_words(&self, start: usize, symbols: &[Symbol], com: &Composition) -> Vec<Seg> {
+    fn find_words(&self, start: usize, symbols: &[Symbol], com: &Composition) -> Vec<Surface> {
         if symbols.len() == 1
             && let Some(sym) = symbols[0].to_char()
         {
-            return vec![Seg::Char(sym)];
+            return vec![Surface::Char(sym)];
         }
 
         if symbols.iter().any(|sym| sym.is_char()) {

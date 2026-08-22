@@ -10,7 +10,7 @@ use chewing::{
     conversion::{Decoder, WordLattice},
     dictionary::StringTable,
     lm::StaticLm,
-    model::{Seg, WordId},
+    model::{Surface, WordId},
     user::{HistoryFreq, UserFreq},
 };
 
@@ -34,10 +34,10 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
             for (i, segstr) in hyp
                 .edges
                 .iter()
-                .map(|e| match e.seg {
-                    Seg::Word(wid) => Cow::Borrowed(words_table.get(wid.0).unwrap_or("<unk>")),
-                    Seg::Char(c) => Cow::Owned(c.to_string()),
-                    Seg::None => Cow::Borrowed("<unk>"),
+                .map(|e| match e.surface {
+                    Surface::Word(wid) => Cow::Borrowed(words_table.get(wid.0).unwrap_or("<unk>")),
+                    Surface::Char(c) => Cow::Owned(c.to_string()),
+                    Surface::None => Cow::Borrowed("<unk>"),
                 })
                 .enumerate()
             {

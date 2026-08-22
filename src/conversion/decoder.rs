@@ -8,7 +8,7 @@ use std::{
 use crate::{
     conversion::word_lattice::{Edge, WordLattice},
     lm::static_lm::StaticLm,
-    model::Seg,
+    model::Surface,
     user::{HistoryFreq, UserFreq},
 };
 
@@ -32,13 +32,14 @@ impl Decoder {
             return vec![Hypothesis::default()];
         }
         let paths = find_k_paths(Self::MAX_OUT_HYPOTHESES, lattice, |w1, w2| match (w1, w2) {
-            (Seg::Word(wid1), Seg::Word(wid2)) => {
+            (Surface::Word(wid1), Surface::Word(wid2)) => {
+                // TODO: Add user history and back-off
                 self.lm.get(wid1.0, wid2.0).unwrap_or_default() as f64
             }
-            (Seg::Word(wid), Seg::Char(_))
-            | (Seg::Word(wid), Seg::None)
-            | (Seg::Char(_), Seg::Word(wid))
-            | (Seg::None, Seg::Word(wid)) => self.lm.get(0, wid.0).unwrap_or_default() as f64,
+            (Surface::Word(wid), _) | (_, Surface::Word(wid)) => {
+                // Fallback to unigram
+                self.lm.get(0, wid.0).unwrap_or_default() as f64
+            }
             _ => 0.0,
         });
         debug_assert!(!paths.is_empty());
@@ -48,9 +49,9 @@ impl Decoder {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct StateCoord {
-    prev: Seg,
+    prev: Surface,
     start: u8,
-    curr: Seg,
+    curr: Surface,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -69,16 +70,16 @@ struct StateValue<'a> {
 /// https://jair.org/index.php/jair/article/view/10995
 fn find_k_paths<F>(k: u8, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
 where
-    F: Fn(Seg, Seg) -> f64,
+    F: Fn(Surface, Surface) -> f64,
 {
     let h = future_cost(lattice, &cost_fn);
     let len = lattice.len;
     let mut arena: BTreeMap<StateCoord, StateValue<'_>> = BTreeMap::new();
     let mut open = BinaryHeap::new();
     let source_state = StateCoord {
-        prev: Seg::None,
+        prev: Surface::None,
         start: 0,
-        curr: Seg::None,
+        curr: Surface::None,
     };
     arena.insert(
         source_state,
@@ -89,7 +90,7 @@ where
             edge: &Edge {
                 start: 0,
                 end: 0,
-                seg: Seg::None,
+                surface: Surface::None,
             },
         },
     );
@@ -115,11 +116,11 @@ where
         }
 
         for e in &lattice.edges[state.edge.end as usize] {
-            let cost = state.cost + cost_fn(state.edge.seg, e.seg);
+            let cost = state.cost + cost_fn(state.edge.surface, e.surface);
             let next_coord = StateCoord {
-                prev: state.edge.seg,
+                prev: state.edge.surface,
                 start: state.edge.end,
-                curr: e.seg,
+                curr: e.surface,
             };
             let next_state = StateValue {
                 cost,
@@ -146,7 +147,7 @@ where
 fn reconstruct(arena: &BTreeMap<StateCoord, StateValue<'_>>, mut coord: StateCoord) -> Vec<Edge> {
     let mut edges = Vec::new();
     while let Some(v) = arena.get(&coord) {
-        if v.edge.seg == Seg::None {
+        if v.edge.surface == Surface::None {
             break;
         }
         edges.push(*v.edge);
@@ -180,14 +181,14 @@ impl Ord for OrderedF64 {
 // DAG with start < end, so process nodes in decreasing order.
 fn future_cost<F>(lattice: &WordLattice, cost_fn: F) -> Vec<f64>
 where
-    F: Fn(Seg, Seg) -> f64,
+    F: Fn(Surface, Surface) -> f64,
 {
     let len = lattice.len;
     let mut h = vec![f64::INFINITY; len + 1];
     h[len] = 0.0;
     for v in (0..len).rev() {
         for e in &lattice.edges[v] {
-            let cost = cost_fn(Seg::None, e.seg);
+            let cost = cost_fn(Surface::None, e.surface);
             let c = cost + h[e.end as usize];
             if c < h[v] {
                 h[v] = c;

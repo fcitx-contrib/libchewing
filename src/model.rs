@@ -57,8 +57,9 @@ impl WordId {
     }
 }
 
+/// A possible intepretation of the input state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Seg {
+pub enum Surface {
     Word(WordId),
     Char(char),
     None,
