@@ -88,97 +88,6 @@ impl StaticLm {
 }
 
 #[derive(Debug)]
-pub struct StaticLmBuilder {
-    matrix: BTreeMap<(u32, u32), u64>,
-    rows: u32,
-    unigram_total: u64,
-    bigram_total: u64,
-}
-
-impl StaticLmBuilder {
-    pub fn new() -> StaticLmBuilder {
-        StaticLmBuilder {
-            matrix: BTreeMap::new(),
-            rows: 0,
-            unigram_total: 0,
-            bigram_total: 0,
-        }
-    }
-    pub fn observe(&mut self, row: u32, col: u32, value: u32) {
-        self.matrix
-            .entry((row, col))
-            .and_modify(|e| *e += value as u64)
-            .or_insert(value as u64);
-        self.rows = self.rows.max(row + 1);
-        if row == 0 {
-            self.unigram_total += value as u64;
-        } else {
-            self.bigram_total += value as u64;
-        }
-    }
-    pub fn to_writer<W>(&self, writer: W) -> Result<(), StaticLmError>
-    where
-        W: Write,
-    {
-        expect_error("Failed to serialize StaticLm", || {
-            let mut encoder = BareEncoder::new(writer);
-
-            let q_matrix: BTreeMap<(u32, u32), f64> = self
-                .matrix
-                .iter()
-                .filter_map(|(&k, &v)| {
-                    let total = if k.0 == 0 {
-                        self.unigram_total
-                    } else {
-                        self.bigram_total
-                    };
-                    let log10_prob = ((v as f64) / (total as f64)).log10();
-                    // let quantized = quantize_log2_prob(p_log2);
-                    // if quantized == 0 {
-                    //     None
-                    // } else {
-                    Some((k, log10_prob))
-                    // }
-                })
-                .collect();
-
-            // Write file magic
-            encoder.write_data_exact(b"CHLM")?;
-            // Write version
-            encoder.write_uint(0)?;
-            // Write header flags
-            encoder.write_u32(0)?;
-            // Write num_rows
-            encoder.write_u32(self.rows)?;
-            // Write num_values
-            encoder.write_u64(q_matrix.len() as u64)?;
-
-            // Write row index
-            let mut offset = 0;
-            let mut current_row = 0;
-            for (row, _) in q_matrix.keys() {
-                if *row == current_row {
-                    encoder.write_u32(offset)?;
-                    current_row += 1;
-                }
-                offset += 1;
-            }
-            encoder.write_u32(offset)?;
-            // Write col index
-            for (_, col) in q_matrix.keys() {
-                encoder.write_u32(*col)?;
-            }
-            // Write quantized values
-            // for value in q_matrix.values() {
-            //     encoder.write_u8(*value)?;
-            // }
-
-            Ok(())
-        })
-    }
-}
-
-#[derive(Debug)]
 pub struct StaticLmCompiler {
     matrix: BTreeMap<(WordId, WordId), f64>,
     rows: u32,
@@ -283,11 +192,15 @@ impl_context_error!(pub StaticLmError);
 
 #[cfg(test)]
 mod test {
-    use std::ops::Sub;
+    use std::{error::Error, ops::Sub};
 
-    use crate::lm::static_lm::{StaticLm, quantize_log_prob, unquantize_log_prob};
-
-    use super::StaticLmBuilder;
+    use crate::{
+        lm::{
+            StaticLmCompiler,
+            static_lm::{StaticLm, quantize_log_prob, unquantize_log_prob},
+        },
+        model::WordId,
+    };
 
     #[test]
     fn quantize_unquantize() {
@@ -299,25 +212,27 @@ mod test {
     }
 
     #[test]
-    fn build_static_lm() {
-        let mut builder = StaticLmBuilder::new();
+    fn compile_static_lm() -> Result<(), Box<dyn Error>> {
+        let mut compiler = StaticLmCompiler::new();
         let mut buf: Vec<u8> = vec![];
-        builder.observe(0, 0, 5);
-        builder.observe(1, 1, 8);
-        builder.observe(2, 2, 3);
-        builder.observe(3, 1, 6);
-        builder.observe(3, 2, 0);
-        builder.to_writer(&mut buf).unwrap();
+        compiler.insert(WordId(0), WordId(0), 0.01_f64.log10())?;
+        compiler.insert(WordId(1), WordId(1), 0.02_f64.log10())?;
+        compiler.insert(WordId(2), WordId(2), 0.03_f64.log10())?;
+        compiler.insert(WordId(3), WordId(1), 0.04_f64.log10())?;
+        compiler.insert(WordId(3), WordId(2), 0.05_f64.log10())?;
+        compiler.to_writer(&mut buf).unwrap();
 
         assert_eq!(
             &[
-                b'C', b'H', b'L', b'M', 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0,
-                0, 1, 0, 0, 0, 255, 237, 215, 231
+                b'C', b'H', b'L', b'M', 0, 0, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0,
+                0, 1, 0, 0, 0, 2, 0, 0, 0, 95, 84, 76, 70, 66
             ][..],
             &buf
         );
+        Ok(())
     }
+
     #[test]
     fn read_static_lm() {
         let lm = &[
