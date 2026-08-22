@@ -2,8 +2,9 @@
 //!
 //! The word preferences can be loaded from a file in this format:
 //!
-//!     <word>,<freq>
-//!
+//! ```text
+//! <word>,<freq>
+//! ````
 //! Each line is separated by a new line (LF). The freq must be an integer
 //! between [`UserFreq::MIN`] and [`UserFreq::MAX`].
 //!
