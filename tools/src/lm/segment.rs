@@ -49,7 +49,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
             }
             println!("");
             // TODO: add option to output all hypotheses
-            // break;
+            break;
         }
     }
 

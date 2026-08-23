@@ -49,6 +49,8 @@ pub(crate) enum Lm {
     Compile(LmCompile),
     /// Segment a string
     Segment(LmSegment),
+    /// Learn unigram and bigram language model and output ARPA file
+    Learn(LmLearn),
 }
 
 #[derive(Args)]
@@ -67,6 +69,14 @@ pub(crate) struct LmSegment {
     pub(crate) static_lm: PathBuf,
     /// Path to the words list (static_words.txt)
     pub(crate) words_txt: PathBuf,
+}
+
+#[derive(Args)]
+pub(crate) struct LmLearn {
+    /// Path to the words list (static_words.txt)
+    pub(crate) words_txt: PathBuf,
+    /// Path to the output ARPA file (static_lm.arpa)
+    pub(crate) output: PathBuf,
 }
 
 #[derive(Args)]

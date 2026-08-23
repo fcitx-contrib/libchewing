@@ -38,6 +38,9 @@ fn main() -> Result<()> {
             flags::Lm::Segment(args) => {
                 lm::segment(&args.static_lm, &args.words_txt)?;
             }
+            flags::Lm::Learn(args) => {
+                lm::learn_lm(&args.words_txt, &args.output)?;
+            }
         },
     }
     Ok(())
