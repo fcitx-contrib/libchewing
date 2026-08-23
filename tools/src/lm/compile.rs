@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
 };
 
@@ -89,7 +89,7 @@ pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()>
         }
     }
 
-    let mut static_lm_bin = File::create(output)?;
+    let mut static_lm_bin = BufWriter::new(File::create(output)?);
     compiler.to_writer(&mut static_lm_bin)?;
     static_lm_bin.flush()?;
 

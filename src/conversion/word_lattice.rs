@@ -1,7 +1,6 @@
 //! Builds word lattice
 
 use log::trace;
-use smol_str::SmolStr;
 
 use crate::{
     conversion::{Composition, Gap, Symbol},

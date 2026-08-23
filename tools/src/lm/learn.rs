@@ -57,6 +57,7 @@ pub(crate) fn learn_lm(words: &Path, output: &Path) -> Result<()> {
 
     writeln!(out, r"\data\")?;
     writeln!(out, "ngram 1={}", unigrams.len())?;
+    writeln!(out, "ngram 2={}", bigrams.len())?;
     writeln!(out, "")?;
 
     writeln!(out, r"\1-grams:")?;

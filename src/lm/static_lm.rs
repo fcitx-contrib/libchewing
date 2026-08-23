@@ -106,9 +106,11 @@ impl StaticLmCompiler {
     }
     pub fn insert(&mut self, row: WordId, col: WordId, value: f64) -> Result<(), StaticLmError> {
         expect_error("Failed to compile language model", || {
-            if let Some(_) = self.matrix.insert((row, col), value) {
-                bail!("Multiple entries for ({}, {})", row, col);
+            if self.matrix.contains_key(&(row, col)) {
+                eprintln!("Multiple entries for ({}, {})", row, col);
+                return Ok(());
             }
+            self.matrix.insert((row, col), value);
             self.rows = self.rows.max(row.0 + 1);
             if row.0 == 0 {
                 self.unigram_len += 1;
@@ -149,17 +151,30 @@ impl StaticLmCompiler {
             // Write num_values
             encoder.write_u64(q_matrix.len() as u64)?;
 
-            // Write row index
+            // Calculate row index
+            let mut row_ptr = vec![0; (self.rows + 1) as usize];
             let mut offset = 0;
             let mut current_row = 0;
-            for (row, _) in q_matrix.keys() {
-                if *row == current_row {
-                    encoder.write_u32(offset)?;
+
+            for (&(row, _), _) in q_matrix.iter() {
+                let r = row as usize;
+                while current_row < r {
                     current_row += 1;
+                    row_ptr[current_row] = offset;
                 }
                 offset += 1;
             }
-            encoder.write_u32(offset)?;
+            // Fill remaining rows if the last rows are empty
+            while current_row < self.rows as usize {
+                current_row += 1;
+                row_ptr[current_row] = offset;
+            }
+            row_ptr[self.rows as usize] = offset; // The final total NNZ
+
+            // Write row index
+            for ptr in row_ptr {
+                encoder.write_u32(ptr as u32)?;
+            }
             // Write col index
             for (_, col) in q_matrix.keys() {
                 encoder.write_u32(*col)?;
