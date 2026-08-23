@@ -26,13 +26,11 @@ pub struct Hypothesis {
 }
 
 impl Decoder {
-    pub(crate) const MAX_OUT_HYPOTHESES: u8 = 10;
-
-    pub fn decode(&self, lattice: &WordLattice) -> Vec<Hypothesis> {
+    pub fn decoden(&self, lattice: &WordLattice, n: u8) -> Vec<Hypothesis> {
         if lattice.edges.is_empty() {
             return vec![Hypothesis::default()];
         }
-        let paths = find_k_paths(Self::MAX_OUT_HYPOTHESES, lattice, |w1, w2| match (w1, w2) {
+        let paths = find_k_paths(n, lattice, |w1, w2| match (w1, w2) {
             (Surface::Word(wid1), Surface::Word(wid2)) => {
                 // TODO: Add user history and back-off
                 self.lm.get(wid1.0, wid2.0).unwrap_or_default().neg()

@@ -80,8 +80,8 @@ impl StaticLm {
         let row_end = *row_index.get(row as usize + 1)? as usize;
         let cols = &col_index[row_start..row_end];
         let vals = &values[row_start..row_end];
-        cols.iter()
-            .position(|c| *c == col)
+        cols.binary_search(&col)
+            .ok()
             .map(|pos| vals[pos])
             .map(|q| unquantize_log_prob(q))
     }

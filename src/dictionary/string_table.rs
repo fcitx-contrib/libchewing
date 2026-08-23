@@ -62,6 +62,12 @@ impl StringTable {
         let e = offset_1;
         Some(&self.buffer[s..e].trim_ascii_end())
     }
+    pub fn iter(&self) -> impl Iterator<Item = (&str, u32)> {
+        (0..self.offset.len()).filter_map(|i| {
+            let i = i as u32;
+            self.get(i).map(|s| (s, i))
+        })
+    }
     /// Creates an inverse map from strings to indexes
     pub fn to_map(&self) -> BTreeMap<&str, u32> {
         let mut map = BTreeMap::new();

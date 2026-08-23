@@ -1,6 +1,7 @@
 //! Builds word lattice
 
 use log::trace;
+use smol_str::SmolStr;
 
 use crate::{
     conversion::{Composition, Gap, Symbol},
@@ -37,12 +38,20 @@ impl WordLattice {
     where
         F: Fn(&str) -> Option<WordId>,
     {
-        let len = s.chars().count();
+        // Cache char indexes
+        let mut chars_vec: Vec<usize> = s.char_indices().map(|ci| ci.0).collect();
+        // Add end of string offset
+        chars_vec.push(s.len());
+        // Number of chars
+        let len = chars_vec.len() - 1;
+
         let mut edges = vec![vec![]; len];
         for start in 0..len {
             let max_end = usize::min(start + MAX_PHRASE_LEN, len);
             for end in (start + 1)..=max_end {
-                let substr: String = s.chars().skip(start).take(end - start).collect();
+                let s_start = chars_vec[start];
+                let s_end = chars_vec[end];
+                let substr = &s[s_start..s_end];
                 if let Some(wid) = find_words(&substr) {
                     edges[start].push(Edge {
                         start: start as u8,
