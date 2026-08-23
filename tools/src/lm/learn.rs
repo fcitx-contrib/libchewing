@@ -1,11 +1,11 @@
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{BufRead, BufReader, Write, stdin},
+    io::{BufRead, Write, stdin},
     path::Path,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use chewing::{dictionary::StringTable, model::WordId};
 
 pub(crate) fn learn_lm(words: &Path, output: &Path) -> Result<()> {
@@ -67,11 +67,32 @@ pub(crate) fn learn_lm(words: &Path, output: &Path) -> Result<()> {
         writeln!(out, "{} {}", log10prob, word)?;
     }
 
+    const MIN_COUNT: u64 = 2;
+    const ALPHA: f64 = 0.4;
+    let log10_alpha = ALPHA.log10();
+
     writeln!(out, "")?;
     writeln!(out, r"\2-grams:")?;
     for ((wid1, wid2), count) in bigrams {
+        // min occurrence pruning
+        if count < MIN_COUNT {
+            continue;
+        }
+
         let cwp = unigrams.get(&wid1).expect("should have unigram");
         let log10prob = (count as f64 / *cwp as f64).log10();
+
+        // stupid-back-off pruning
+        let count_w2 = unigrams.get(&wid2).expect("should have unigram");
+        let log10_unigram_w2 = (*count_w2 as f64 / unigram_total as f64).log10();
+
+        let backoff_threshold = log10_alpha + log10_unigram_w2;
+
+        if log10prob < backoff_threshold {
+            // this bigram is worse than backing off!
+            continue;
+        }
+
         let word1 = words_table.get(*wid1).expect("should have word");
         let word2 = words_table.get(*wid2).expect("should have word");
         writeln!(out, "{} {} {}", log10prob, word1, word2)?;

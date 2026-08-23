@@ -30,18 +30,30 @@ impl Decoder {
         if lattice.edges.is_empty() {
             return vec![Hypothesis::default()];
         }
+
+        // This should match the ALPHA used in the training logic
+        const LOG10_ALPHA: f64 = -0.39794; // log10(0.4)
+        const UNIGRAM_FLOOR: f64 = -10.0;
+
         let paths = find_k_paths(n, lattice, |w1, w2| match (w1, w2) {
             (Surface::Word(wid1), Surface::Word(wid2)) => {
-                // TODO: Add user history and back-off
-                self.lm.get(wid1.0, wid2.0).unwrap_or_default().neg()
-                    + self.lm.get(0, wid2.0).unwrap_or_default().neg()
+                // Attempt to get the bigram probability
+                if let Some(bigram_prob) = self.lm.get(wid1.0, wid2.0) {
+                    // Use the bigram probability directly
+                    bigram_prob.neg()
+                } else {
+                    // Stupid back-off: penalty + unigram
+                    let unigram_prob = self.lm.get(0, wid2.0).unwrap_or(UNIGRAM_FLOOR);
+                    (LOG10_ALPHA + unigram_prob).neg()
+                }
             }
             (Surface::Word(wid), _) | (_, Surface::Word(wid)) => {
-                // Fallback to unigram
-                self.lm.get(0, wid.0).unwrap_or_default().neg()
+                // Handle non-word transitions (edges to/from start/end)
+                self.lm.get(0, wid.0).unwrap_or(UNIGRAM_FLOOR).neg()
             }
-            _ => 0.0,
+            _ => UNIGRAM_FLOOR.neg(),
         });
+
         debug_assert!(!paths.is_empty());
         paths
     }
