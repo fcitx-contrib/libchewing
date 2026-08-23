@@ -1,59 +1,89 @@
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{BufRead, Write, stdin},
+    io::{BufRead, BufWriter, Write, stdin},
     path::Path,
 };
 
 use anyhow::Result;
 use chewing::{dictionary::StringTable, model::WordId};
+use fxhash::FxHashMap;
+
+type LocalCounts = (FxHashMap<WordId, u64>, FxHashMap<(WordId, WordId), u64>);
 
 pub(crate) fn learn_lm(words: &Path, output: &Path) -> Result<()> {
     let words_table = StringTable::open(words)?;
-    let words_map = words_table.to_map();
+    let words_map: FxHashMap<&str, u32> = words_table.iter().collect();
 
-    let mut unigram_total: u64 = 0;
-    let mut unigrams: BTreeMap<WordId, u64> = BTreeMap::new();
+    let stdin = stdin();
+    let n_threads = std::thread::available_parallelism()?.get();
 
-    let mut bigrams: BTreeMap<(WordId, WordId), u64> = BTreeMap::new();
+    let (work_send, work_recv) = crossbeam_channel::bounded::<String>(n_threads * 2);
+    let (result_send, result_recv) = crossbeam_channel::bounded::<LocalCounts>(n_threads);
 
-    let stdin = stdin().lock();
+    std::thread::scope(|s| {
+        for _ in 0..n_threads {
+            let work_recv = work_recv.clone();
+            let result_send = result_send.clone();
+            let words_map = &words_map;
 
-    for io in stdin.lines() {
-        let line = io?;
-        let words = line
-            .trim()
-            .split_whitespace()
-            .filter(|ss| !ss.is_empty())
-            .collect::<Vec<_>>();
+            s.spawn(move || {
+                let mut local_uni = FxHashMap::default();
+                let mut local_bi = FxHashMap::default();
 
-        // count unigrams
-        for word in &words {
-            if let Some(wid) = words_map.get(word) {
-                unigram_total += 1;
-                unigrams
-                    .entry(WordId(*wid))
-                    .and_modify(|c| *c += 1)
-                    .or_insert(1);
+                while let Ok(line) = work_recv.recv() {
+                    // Process line without collecting into a Vec to avoid allocations
+                    let mut prev_wid = None;
+
+                    for word in line.split_whitespace() {
+                        if let Some(&wid) = words_map.get(word) {
+                            let wid = WordId(wid);
+
+                            // Unigram count
+                            *local_uni.entry(wid).or_insert(0) += 1;
+
+                            // Bigram count
+                            if let Some(p_wid) = prev_wid {
+                                *local_bi.entry((p_wid, wid)).or_insert(0) += 1;
+                            }
+                            prev_wid = Some(wid);
+                        } else {
+                            // Break bigram chain on unknown word
+                            prev_wid = None;
+                        }
+                    }
+                }
+                // Send the local aggregation to the reducer
+                result_send.send((local_uni, local_bi)).unwrap();
+            });
+        }
+        drop(result_send);
+
+        // Producer: Read stdin and distribute work
+        for line in stdin.lock().lines() {
+            if let Ok(l) = line {
+                work_send.send(l).unwrap();
             }
         }
+        drop(work_send);
+    });
 
-        // count bigrams
-        for window in words.windows(2) {
-            let word1 = window[0];
-            let word2 = window[1];
-            if let Some(wid1) = words_map.get(word1)
-                && let Some(wid2) = words_map.get(word2)
-            {
-                bigrams
-                    .entry((WordId(*wid1), WordId(*wid2)))
-                    .and_modify(|c| *c += 1)
-                    .or_insert(1);
-            }
+    // Reducer: Merge local results into final sorted BTreeMaps
+    let mut unigram_total = 0;
+    let mut unigrams = BTreeMap::new();
+    let mut bigrams = BTreeMap::new();
+
+    while let Ok((u, b)) = result_recv.recv() {
+        for (wid, count) in u {
+            *unigrams.entry(wid).or_insert(0) += count;
+            unigram_total += count;
+        }
+        for (pair, count) in b {
+            *bigrams.entry(pair).or_insert(0) += count;
         }
     }
 
-    let mut out = File::create(output)?;
+    let mut out = BufWriter::new(File::create(output)?);
 
     writeln!(out, r"\data\")?;
     writeln!(out, "ngram 1={}", unigrams.len())?;
@@ -67,7 +97,7 @@ pub(crate) fn learn_lm(words: &Path, output: &Path) -> Result<()> {
         writeln!(out, "{} {}", log10prob, word)?;
     }
 
-    const MIN_COUNT: u64 = 2;
+    const MIN_COUNT: u64 = 10;
     const ALPHA: f64 = 0.4;
     let log10_alpha = ALPHA.log10();
 
@@ -100,5 +130,7 @@ pub(crate) fn learn_lm(words: &Path, output: &Path) -> Result<()> {
 
     writeln!(out, "")?;
     writeln!(out, r"\end\")?;
+    out.flush()?;
+
     Ok(())
 }

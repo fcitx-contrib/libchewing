@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
     fs::File,
     io::{BufRead, Write, stdin, stdout},
     path::Path,
@@ -15,11 +14,12 @@ use chewing::{
     model::{Surface, WordId},
     user::{HistoryFreq, UserFreq},
 };
+use fxhash::FxHashMap;
 
 pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
     let lm = StaticLm::from_reader(File::open(static_lm)?)?;
     let words_table = StringTable::open(words)?;
-    let words_map: HashMap<&str, u32> = words_table.iter().collect();
+    let words_map: FxHashMap<&str, u32> = words_table.iter().collect();
 
     let stdin = stdin().lock();
 
@@ -29,24 +29,24 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
         lm,
     };
 
-    let n_threads = thread::available_parallelism()?;
-    let (input, work) = crossbeam_channel::bounded::<String>(n_threads.get());
-    let (output, result) = crossbeam_channel::bounded::<String>(4096);
+    let n_threads = thread::available_parallelism()?.get();
+    let (work_send, work_recv) = crossbeam_channel::bounded::<String>(n_threads * 2);
+    let (result_send, result_recv) = crossbeam_channel::bounded::<String>(4096);
 
     let output_handle = thread::spawn(move || {
         let mut stdout = stdout().lock();
         loop {
-            let Ok(res) = result.recv() else {
+            let Ok(res) = result_recv.recv() else {
                 return;
             };
             writeln!(stdout, "{}", res).expect("unable to write to stdout");
         }
     });
     thread::scope(|s| {
-        for _ in 0..n_threads.get() {
+        for _ in 0..n_threads {
             s.spawn(|| {
                 loop {
-                    let Ok(line) = work.recv() else {
+                    let Ok(line) = work_recv.recv() else {
                         return;
                     };
                     let lattice =
@@ -73,7 +73,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
                                 segmented.push_str(&segstr);
                             }
                         }
-                        output
+                        result_send
                             .send(segmented)
                             .expect("unable to send output to stdout");
                     }
@@ -82,14 +82,14 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
         }
         for io in stdin.lines() {
             if let Ok(line) = io {
-                input
+                work_send
                     .send(line)
                     .expect("unable to send input to worker thread");
             }
         }
-        drop(input);
+        drop(work_send);
     });
-    drop(output);
+    drop(result_send);
     output_handle.join().expect("failed to write to stdout");
 
     Ok(())
