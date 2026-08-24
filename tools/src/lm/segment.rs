@@ -10,14 +10,14 @@ use anyhow::Result;
 use chewing::{
     conversion::{Decoder, WordLattice},
     dictionary::StringTable,
-    lm::StaticLm,
+    lm::{LoadMode, StaticLm},
     model::{Surface, WordId},
     user::{HistoryFreq, UserFreq},
 };
 use fxhash::FxHashMap;
 
 pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
-    let lm = StaticLm::from_reader(File::open(static_lm)?)?;
+    let lm = StaticLm::from_reader(File::open(static_lm)?, LoadMode::Eager)?;
     let words_table = StringTable::open(words)?;
     let words_map: FxHashMap<&str, u32> = words_table.iter().collect();
 

@@ -57,11 +57,13 @@ type StaticLMHeaderV1 struct {
     flags: u32
     num_rows: u32
     num_values: u64
+    col_deltas_len: u64
 }
 
 type StaticLMIndexV1 {
     r: list<u32>[num_rows]
-    c: list<u32>[num_values]
+    rbo: list<u32>[num_rows]
+    c: list<uint>[num_values]
     v: list<u8>[num_values]
 }
 

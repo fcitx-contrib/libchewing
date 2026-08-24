@@ -72,6 +72,23 @@ impl<R: Read> BareDecoder<R> {
             Ok(buf)
         })
     }
+    pub(crate) fn read_list_u32_exact(&mut self, count: usize) -> Result<Vec<u32>, BareError> {
+        expect_error("Failed to decode typed data from buffer", || {
+            let mut buf: Vec<u32> = vec![0u32; count];
+
+            // SAFETY: buf is always u8 aligned and all u32 bit patterns are valid u8
+            #[allow(unsafe_code)]
+            let (prefix, bytes, suffix) = unsafe { buf.align_to_mut::<u8>() };
+
+            // bytes should be perfectly aligned
+            assert!(prefix.is_empty() && suffix.is_empty());
+
+            // MSRV: use read_buf_exact when available
+            self.reader.read_exact(bytes)?;
+
+            Ok(buf)
+        })
+    }
 }
 
 impl<W: Write> BareEncoder<W> {

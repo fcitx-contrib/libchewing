@@ -31,8 +31,7 @@ impl Decoder {
             return vec![Hypothesis::default()];
         }
 
-        // This should match the ALPHA used in the training logic
-        const LOG10_ALPHA: f64 = -0.39794; // log10(0.4)
+        const LOG10_ALPHA_0_4: f64 = -0.39794;
         const UNIGRAM_FLOOR: f64 = -10.0;
 
         let paths = find_k_paths(n, lattice, |w1, w2| match (w1, w2) {
@@ -44,7 +43,7 @@ impl Decoder {
                 } else {
                     // Stupid back-off: penalty + unigram
                     let unigram_prob = self.lm.get(0, wid2.0).unwrap_or(UNIGRAM_FLOOR);
-                    (LOG10_ALPHA + unigram_prob).neg()
+                    (LOG10_ALPHA_0_4 + unigram_prob).neg()
                 }
             }
             (Surface::Word(wid), _) | (_, Surface::Word(wid)) => {
