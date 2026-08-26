@@ -9,7 +9,7 @@ use std::{
 use crate::{
     conversion::word_lattice::{Edge, WordLattice},
     lm::static_lm::StaticLm,
-    model::Surface,
+    model::{Surface, WordId},
     user::{HistoryFreq, UserFreq},
 };
 
@@ -32,25 +32,33 @@ impl Decoder {
         }
 
         const LOG10_ALPHA_0_4: f64 = -0.39794;
-        const UNIGRAM_FLOOR: f64 = -10.0;
+        const UNIGRAM_FLOOR: f64 = -20.0;
+        const ERROR_FLOOR: f64 = -30.0;
+        const HISTORY_BOOST_FACTOR: f64 = 0.5;
+        const MANUAL_BOOST_FACTOR: f64 = 2.0;
 
-        let paths = find_k_paths(n, lattice, |w1, w2| match (w1, w2) {
-            (Surface::Word(wid1), Surface::Word(wid2)) => {
-                // Attempt to get the bigram probability
-                if let Some(bigram_prob) = self.lm.get(wid1.0, wid2.0) {
-                    // Use the bigram probability directly
-                    bigram_prob.neg()
-                } else {
-                    // Stupid back-off: penalty + unigram
-                    let unigram_prob = self.lm.get(0, wid2.0).unwrap_or(UNIGRAM_FLOOR);
-                    (LOG10_ALPHA_0_4 + unigram_prob).neg()
-                }
-            }
-            (Surface::Word(wid), _) | (_, Surface::Word(wid)) => {
-                // Handle non-word transitions (edges to/from start/end)
-                self.lm.get(0, wid.0).unwrap_or(UNIGRAM_FLOOR).neg()
-            }
-            _ => UNIGRAM_FLOOR.neg(),
+        let paths = find_k_paths(n, lattice, |w1, w2| {
+            let (wid1, wid2) = match (w1, w2) {
+                (Surface::Word(wid1), Surface::Word(wid2)) => (wid1, wid2),
+                (Surface::Word(wid), _) | (_, Surface::Word(wid)) => (WordId(0), wid),
+                _ => return ERROR_FLOOR.neg(),
+            };
+            let unigram_prob = self.lm.get(0, wid2.0).unwrap_or(UNIGRAM_FLOOR);
+            // Attempt to get the bigram probability
+            let general_cost = if let Some(bigram_prob) = self.lm.get(wid1.0, wid2.0) {
+                // Use the bigram probability directly
+                bigram_prob.neg()
+            } else {
+                // Stupid back-off: penalty + unigram
+                (LOG10_ALPHA_0_4 + unigram_prob).neg()
+            };
+            let user_unigram_prob = self.history_freq.get(wid2).unwrap_or(unigram_prob);
+            let user_gain = (user_unigram_prob - unigram_prob).neg();
+            let user_manual_freq = (self.user_freq.get(wid2).unwrap_or(0) as f64 + 1.0).log10();
+            let cost = general_cost
+                - HISTORY_BOOST_FACTOR * user_gain
+                - MANUAL_BOOST_FACTOR * user_manual_freq;
+            cost
         });
 
         debug_assert!(!paths.is_empty());

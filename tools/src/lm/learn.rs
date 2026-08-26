@@ -196,7 +196,7 @@ pub(crate) fn learn_lm_with_config(
     for (&wid, &count) in &unigrams {
         let word = words_table.get(wid.0).expect("should have word");
         let log10prob = (count as f64 / unigram_total as f64).log10();
-        writeln!(out, "{} {}", log10prob, word)?;
+        writeln!(out, "{:.4} {}", log10prob, word)?;
     }
 
     writeln!(out, "")?;
@@ -207,7 +207,7 @@ pub(crate) fn learn_lm_with_config(
 
         let word1 = words_table.get(wid1.0).expect("should have word");
         let word2 = words_table.get(wid2.0).expect("should have word");
-        writeln!(out, "{} {} {}", log10prob, word1, word2)?;
+        writeln!(out, "{:.4} {} {}", log10prob, word1, word2)?;
     }
 
     writeln!(out, "")?;

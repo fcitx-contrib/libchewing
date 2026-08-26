@@ -137,8 +137,8 @@ impl HistoryFreq {
             Ok(())
         })
     }
-    // Gets the history freq of word
-    pub fn get(&self, wid: WordId) -> Option<u32> {
+    // Gets the log10 probability of word from history
+    pub fn get(&self, wid: WordId) -> Option<f64> {
         let lock = self
             .inner
             .read()
@@ -146,6 +146,7 @@ impl HistoryFreq {
         lock.history
             .get(&wid)
             .map(|c| true_count(lock.half_life as u64, lock.generation, c.c_i, c.b_i))
+            .map(|c| (c as f64 / lock.generation as f64).log10())
     }
 }
 
