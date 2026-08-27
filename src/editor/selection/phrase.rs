@@ -2,8 +2,9 @@ use std::cmp::{Reverse, min};
 
 use crate::{
     conversion::{Composition, Gap, Interval},
-    dictionary::{Dictionary, Layered, LookupStrategy},
+    dictionary::{CompositeDict, Dictionary, Layered, LookupStrategy},
     editor::{EditorError, EditorErrorKind, SharedState},
+    model::WordId,
     zhuyin::Syllable,
 };
 
@@ -33,7 +34,7 @@ impl PhraseSelector {
         }
     }
 
-    pub(crate) fn init<D: Dictionary>(&mut self, cursor: usize, dict: &D) {
+    pub(crate) fn init(&mut self, cursor: usize, dict: &CompositeDict) {
         self.orig = cursor;
         if self.forward_select {
             self.begin = if cursor == self.com.len() {
@@ -77,7 +78,11 @@ impl PhraseSelector {
         self.begin
     }
 
-    pub(crate) fn next_selection_point<D: Dictionary>(&self, dict: &D) -> Option<(usize, usize)> {
+    pub(crate) fn end(&self) -> usize {
+        self.end
+    }
+
+    pub(crate) fn next_selection_point(&self, dict: &CompositeDict) -> Option<(usize, usize)> {
         let (mut begin, mut end) = (self.begin, self.end);
         loop {
             if self.forward_select {
@@ -101,7 +106,7 @@ impl PhraseSelector {
             }
         }
     }
-    pub(crate) fn prev_selection_point<D: Dictionary>(&self, dict: &D) -> Option<(usize, usize)> {
+    pub(crate) fn prev_selection_point(&self, dict: &CompositeDict) -> Option<(usize, usize)> {
         let (mut begin, mut end) = (self.begin, self.end);
         loop {
             if self.forward_select {
@@ -131,9 +136,9 @@ impl PhraseSelector {
             }
         }
     }
-    pub(crate) fn jump_to_next_selection_point<D: Dictionary>(
+    pub(crate) fn jump_to_next_selection_point(
         &mut self,
-        dict: &D,
+        dict: &CompositeDict,
     ) -> Result<(), EditorError> {
         if let Some((begin, end)) = self.next_selection_point(dict) {
             self.begin = begin;
@@ -143,9 +148,9 @@ impl PhraseSelector {
             Err(EditorError::new(EditorErrorKind::Impossible))
         }
     }
-    pub(crate) fn jump_to_prev_selection_point<D: Dictionary>(
+    pub(crate) fn jump_to_prev_selection_point(
         &mut self,
-        dict: &D,
+        dict: &CompositeDict,
     ) -> Result<(), EditorError> {
         if let Some((begin, end)) = self.prev_selection_point(dict) {
             self.begin = begin;
@@ -155,16 +160,16 @@ impl PhraseSelector {
             Err(EditorError::new(EditorErrorKind::Impossible))
         }
     }
-    pub(crate) fn jump_to_first_selection_point<D: Dictionary>(&mut self, dict: &D) {
+    pub(crate) fn jump_to_first_selection_point(&mut self, dict: &CompositeDict) {
         self.init(self.orig, dict);
     }
-    pub(crate) fn jump_to_last_selection_point<D: Dictionary>(&mut self, dict: &D) {
+    pub(crate) fn jump_to_last_selection_point(&mut self, dict: &CompositeDict) {
         while self.next_selection_point(dict).is_some() {
             let _ = self.jump_to_next_selection_point(dict);
         }
     }
 
-    pub(crate) fn next<D: Dictionary>(&mut self, dict: &D) {
+    pub(crate) fn next(&mut self, dict: &CompositeDict) {
         loop {
             if self.forward_select {
                 self.end -= 1;
@@ -222,12 +227,13 @@ impl PhraseSelector {
         cursor
     }
 
-    pub(crate) fn candidates(&self, editor: &SharedState, dict: &Layered) -> Vec<String> {
+    pub(crate) fn candidates(&self, editor: &SharedState) -> Vec<WordId> {
         let syllables: Vec<Syllable> = self.com.symbols()[self.begin..self.end]
             .iter()
             .map(|s| s.to_syllable().unwrap_or_default())
             .collect();
-        let mut candidates = dict
+        let mut candidates = editor
+            .dict
             .lookup(&syllables, self.lookup_strategy)
             .into_iter()
             .collect::<Vec<_>>();
@@ -236,13 +242,14 @@ impl PhraseSelector {
                 .syl
                 .alt_syllables(self.com.symbol(self.begin).unwrap().to_syllable().unwrap());
             for &syl in alt {
-                candidates.extend(dict.lookup(&[syl], self.lookup_strategy).into_iter())
+                candidates.extend(editor.dict.lookup(&[syl], self.lookup_strategy).into_iter())
             }
         }
-        if editor.options.sort_candidates_by_frequency {
-            candidates.sort_by_key(|ph| Reverse(ph.freq()));
-        }
-        candidates.into_iter().map(|ph| ph.into()).collect()
+        // if editor.options.sort_candidates_by_frequency {
+        //     candidates.sort_by_key(|ph| Reverse(ph.freq()));
+        // }
+        // candidates.into_iter().map(|ph| ph.into()).collect()
+        candidates.into_iter().map(|(w, _)| w).collect()
     }
 
     pub(crate) fn interval(&self, phrase: impl Into<Box<str>>) -> Interval {

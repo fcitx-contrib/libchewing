@@ -4,6 +4,7 @@ use std::{
     collections::VecDeque,
     io::{BufRead, Write},
     num::NonZeroU32,
+    sync::Arc,
 };
 
 use scoped_error::{bail, expect_error, impl_context_error};
@@ -62,6 +63,11 @@ use crate::{
 /// [DER]: https://en.m.wikipedia.org/wiki/X.690#DER_encoding
 #[derive(Debug, Clone)]
 pub struct StaticDict {
+    inner: Arc<StaticDictInner>,
+}
+
+#[derive(Debug)]
+struct StaticDictInner {
     index: Box<[u8]>,
     words: Box<[u8]>,
 }
@@ -151,13 +157,15 @@ impl StaticDict {
             }
             let index = decoder.read_data()?.into_boxed_slice();
             let words = decoder.read_data()?.into_boxed_slice();
-            Ok(StaticDict { index, words })
+            Ok(StaticDict {
+                inner: Arc::new(StaticDictInner { index, words }),
+            })
         })
     }
 
     pub(crate) fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<WordId> {
-        let dict = self.index.as_ref();
-        let data = self.words.as_ref();
+        let dict = self.inner.index.as_ref();
+        let data = self.inner.words.as_ref();
 
         bail_if_oob!(0, TrieNodeView::SIZE, dict.len());
         let root = TrieNodeView(&dict[..TrieNodeView::SIZE]);

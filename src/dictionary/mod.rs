@@ -9,6 +9,7 @@ use std::{
     path::Path,
 };
 
+pub use self::composite::CompositeDict;
 pub use self::layered::Layered;
 pub use self::loader::{
     AssetLoader, DEFAULT_DICT_NAMES, LoadDictionaryError, SingleDictionaryLoader,
@@ -21,6 +22,7 @@ pub use self::usage::DictionaryUsage;
 use crate::exn::Exn;
 use crate::zhuyin::Syllable;
 
+mod composite;
 mod layered;
 mod loader;
 mod string_table;

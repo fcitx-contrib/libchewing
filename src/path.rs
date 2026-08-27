@@ -21,6 +21,7 @@ const SEARCH_PATH_SEP: char = ';';
 #[cfg(target_family = "unix")]
 const SEARCH_PATH_SEP: char = ':';
 
+const CURRENT_VERSION_PREFIX: &str = "v4";
 const DICT_FOLDER: &str = "dictionary.d";
 
 // On Windows if a low integrity process tries to write to a higher integrity
@@ -31,6 +32,105 @@ fn file_exists(path: &Path) -> bool {
         Ok(true) => true,
         Ok(false) => false,
         Err(error) => matches!(error.kind(), ErrorKind::PermissionDenied),
+    }
+}
+
+#[derive(Debug)]
+pub struct SearchPath {
+    user_datadir: Option<PathBuf>,
+    paths: Vec<PathBuf>,
+}
+
+impl SearchPath {
+    pub fn from_env() -> SearchPath {
+        let chewing_path = env::var("CHEWING_PATH");
+        let sys_path = if let Ok(chewing_path) = chewing_path {
+            debug!("Add paths from CHEWING_PATH: {}", chewing_path);
+            chewing_path
+        } else {
+            SYS_PATH.unwrap_or(DEFAULT_SYS_PATH).to_string()
+        };
+
+        Self::from_system_path_and_env(&sys_path)
+    }
+
+    pub fn from_system_path_and_env(sys_path: &str) -> SearchPath {
+        let mut paths = vec![];
+        let user_datadir = data_dir();
+
+        if let Some(user_datadir) = &user_datadir {
+            paths.push(user_datadir.clone());
+        }
+        for path in sys_path.split(SEARCH_PATH_SEP) {
+            paths.push(PathBuf::from(path));
+        }
+
+        SearchPath {
+            user_datadir,
+            paths,
+        }
+    }
+
+    pub fn from_user_path_and_env(user_path: &str) -> SearchPath {
+        let chewing_path = env::var("CHEWING_PATH");
+        let sys_path = if let Ok(chewing_path) = chewing_path {
+            debug!("Add paths from CHEWING_PATH: {}", chewing_path);
+            chewing_path
+        } else {
+            SYS_PATH.unwrap_or(DEFAULT_SYS_PATH).to_string()
+        };
+
+        Self::from_system_path_and_user_path(&sys_path, user_path)
+    }
+
+    pub fn from_system_path_and_user_path(sys_path: &str, user_path: &str) -> SearchPath {
+        let mut paths = vec![];
+        let user_datadir = PathBuf::from(user_path);
+
+        paths.push(user_datadir.clone());
+        for path in sys_path.split(SEARCH_PATH_SEP) {
+            paths.push(PathBuf::from(path));
+        }
+
+        SearchPath {
+            user_datadir: Some(user_datadir),
+            paths,
+        }
+    }
+
+    pub fn user_datadir(&self) -> Option<&Path> {
+        self.user_datadir.as_ref().map(|pb| pb.as_ref())
+    }
+
+    pub fn find_file(&self, name: &str) -> Option<PathBuf> {
+        for prefix in &self.paths {
+            debug!("Search files in {}", prefix.display());
+            if let Ok(read_dir) = prefix.read_dir() {
+                for entry in read_dir.flatten() {
+                    let file_path = entry.path();
+                    if file_path.is_file() && file_path.ends_with(name) {
+                        debug!("Found {}", file_path.display());
+                        return Some(file_path.to_path_buf());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_user_file(&self, name: &str) -> Option<PathBuf> {
+        let file_path = self.user_file_path(name)?;
+        if file_path.is_file() && file_path.ends_with(name) {
+            debug!("Found {}", file_path.display());
+            return Some(file_path.to_path_buf());
+        }
+        None
+    }
+
+    pub fn user_file_path(&self, name: &str) -> Option<PathBuf> {
+        let prefix = self.user_datadir.as_ref()?;
+        let versioned_path = prefix.join(CURRENT_VERSION_PREFIX);
+        Some(versioned_path.join(name))
     }
 }
 
@@ -144,6 +244,26 @@ where
         }
     }
     files
+}
+
+pub fn find_file_by_name<T>(search_path: &str, name: T) -> Option<PathBuf>
+where
+    T: AsRef<str>,
+{
+    for path in search_path.split(SEARCH_PATH_SEP) {
+        let prefix = Path::new(path).to_path_buf();
+        debug!("Search files in {}", prefix.display());
+        if let Ok(read_dir) = prefix.read_dir() {
+            for entry in read_dir.flatten() {
+                let file_path = entry.path();
+                if file_path.is_file() && file_path.ends_with(name.as_ref()) {
+                    debug!("Found {}", file_path.display());
+                    return Some(file_path.to_path_buf());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Returns the path to the user's default chewing data directory.

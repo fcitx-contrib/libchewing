@@ -3,7 +3,9 @@
 //! The auto user vocabulary list stores new words learned from user interactions
 
 use std::{
-    io::{BufRead, Write},
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -32,6 +34,25 @@ impl HistoryDict {
         HistoryDict {
             inner: Arc::new(RwLock::new(IndexedDict::new(WordId::MIN_HISTORY))),
         }
+    }
+    /// Initialize an empty HistoryDict on the filesystem.
+    ///
+    /// If a file already exists then it will be truncated.
+    pub fn init<P: AsRef<Path>>(path: P) -> Result<(), HistoryDictError> {
+        expect_error("Failed to initialize UserDict", || {
+            let dict = Self::new();
+            let file = File::create(path)?;
+            dict.to_writer(file)?;
+            Ok(())
+        })
+    }
+    /// Open an HistoryDict file and read from it.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<HistoryDict, HistoryDictError> {
+        expect_error("Failed to open user dictionary", || {
+            let file = File::open(path)?;
+            let reader = BufReader::new(file);
+            Ok(HistoryDict::from_reader(reader)?)
+        })
     }
     /// Reads history dict from the IO stream
     pub fn from_reader<R: BufRead>(reader: R) -> Result<HistoryDict, HistoryDictError> {
@@ -68,7 +89,7 @@ impl HistoryDict {
                 let raw_word = decoder.read_data()?;
                 let word = str::from_utf8(&raw_word)?;
 
-                idict.insert(syllables, word.to_smolstr());
+                idict.insert(syllables, word.to_smolstr(), 0);
             }
             Ok(HistoryDict {
                 inner: Arc::new(RwLock::new(idict)),
@@ -114,7 +135,7 @@ impl HistoryDict {
         lock.get_text(wid)
     }
     /// Gets the WordId from (syllables, word)
-    pub fn get_wid(&self, syllables: &[Syllable], word: &str) -> Option<WordId> {
+    pub fn get_wid(&self, syllables: &[Syllable], word: &str) -> Option<(WordId, i32)> {
         let lock = self
             .inner
             .read()
@@ -125,7 +146,7 @@ impl HistoryDict {
         &self,
         syllables: &[Syllable],
         strategy: LookupStrategy,
-    ) -> TinyVec<[WordId; 3]> {
+    ) -> TinyVec<[(WordId, i32); 3]> {
         let lock = self
             .inner
             .read()

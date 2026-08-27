@@ -11,12 +11,14 @@ use crate::{
     zhuyin::Syllable,
 };
 
+#[derive(Debug)]
 pub struct WordLatticeBuilder {
-    static_dict: StaticDict,
-    user_dict: UserDict,
-    history_dict: HistoryDict,
+    pub static_dict: StaticDict,
+    pub user_dict: UserDict,
+    pub history_dict: HistoryDict,
 }
 
+#[derive(Debug)]
 pub struct WordLattice {
     pub(crate) len: usize,
     pub(crate) edges: Vec<Vec<Edge>>,
@@ -27,6 +29,7 @@ pub struct Edge {
     pub start: u8,
     pub end: u8,
     pub surface: Surface,
+    pub boost: i32,
 }
 
 // Assume no words in the dictionary are longer than MAX_PHRASE_LEN syllables.
@@ -56,12 +59,14 @@ impl WordLattice {
                         start: start as u8,
                         end: end as u8,
                         surface: Surface::Word(wid),
+                        boost: 0,
                     });
                 } else if (end - start) == 1 {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
                         surface: Surface::Char(substr.chars().next().unwrap()),
+                        boost: 0,
                     });
                 }
             }
@@ -77,11 +82,12 @@ impl WordLatticeBuilder {
         for start in 0..com.symbols.len() {
             let max_end = usize::min(start + MAX_PHRASE_LEN, com.symbols.len());
             for end in (start + 1)..=max_end {
-                for word in self.find_words(start, &com.symbols[start..end], com) {
+                for (surface, boost) in self.find_words(start, &com.symbols[start..end], com) {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
-                        surface: word,
+                        surface,
+                        boost,
                     });
                 }
             }
@@ -89,34 +95,39 @@ impl WordLatticeBuilder {
         WordLattice { len, edges }
     }
 
-    fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<Surface> {
+    fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Surface, i32)> {
         let mut words = vec![];
         words.extend(
             self.user_dict
                 .lookup(syllables, LookupStrategy::Standard)
                 .iter()
-                .map(|w| Surface::Word(*w)),
+                .map(|&(w, b)| (Surface::Word(w), b)),
         );
         words.extend(
             self.history_dict
                 .lookup(syllables, LookupStrategy::Standard)
                 .iter()
-                .map(|w| Surface::Word(*w)),
+                .map(|&(w, b)| (Surface::Word(w), b)),
         );
         words.extend(
             self.static_dict
                 .lookup(syllables, LookupStrategy::Standard)
                 .iter()
-                .map(|w| Surface::Word(*w)),
+                .map(|&w| (Surface::Word(w), 0)),
         );
         words
     }
 
-    fn find_words(&self, start: usize, symbols: &[Symbol], com: &Composition) -> Vec<Surface> {
+    fn find_words(
+        &self,
+        start: usize,
+        symbols: &[Symbol],
+        com: &Composition,
+    ) -> Vec<(Surface, i32)> {
         if symbols.len() == 1
             && let Some(sym) = symbols[0].to_char()
         {
-            return vec![Surface::Char(sym)];
+            return vec![(Surface::Char(sym), 0)];
         }
 
         if symbols.iter().any(|sym| sym.is_char()) {
@@ -135,7 +146,10 @@ impl WordLatticeBuilder {
         }
 
         for selection in &com.selections {
-            if selection.intersect_range(start, end) && !selection.is_contained_by(start, end) {
+            if selection.start == start && selection.end == end {
+                return vec![(Surface::Word(selection.wid), 0)];
+            }
+            if selection.intersect_range(start, end) {
                 // There's a conflicting partial intersecting selection.
                 trace!(
                     "No viable word for {:?} due to conflicting user selection {:?}",

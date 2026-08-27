@@ -10,12 +10,11 @@ use crate::{
     conversion::word_lattice::{Edge, WordLattice},
     lm::static_lm::StaticLm,
     model::{Surface, WordId},
-    user::{HistoryFreq, UserFreq},
+    user::HistoryFreq,
 };
 
 #[derive(Debug)]
 pub struct Decoder {
-    pub user_freq: UserFreq,
     pub history_freq: HistoryFreq,
     pub lm: StaticLm,
 }
@@ -23,6 +22,7 @@ pub struct Decoder {
 #[derive(Debug, Default, Clone)]
 pub struct Hypothesis {
     pub edges: Vec<Edge>,
+    pub cost: f64,
 }
 
 impl Decoder {
@@ -37,7 +37,7 @@ impl Decoder {
         const HISTORY_BOOST_FACTOR: f64 = 0.5;
         const MANUAL_BOOST_FACTOR: f64 = 2.0;
 
-        let paths = find_k_paths(n, lattice, |w1, w2| {
+        let paths = find_k_paths(n, lattice, |w1, w2, w2boost| {
             let (wid1, wid2) = match (w1, w2) {
                 (Surface::Word(wid1), Surface::Word(wid2)) => (wid1, wid2),
                 (Surface::Word(wid), _) | (_, Surface::Word(wid)) => (WordId(0), wid),
@@ -52,12 +52,17 @@ impl Decoder {
                 // Stupid back-off: penalty + unigram
                 (LOG10_ALPHA_0_4 + unigram_prob).neg()
             };
-            let user_unigram_prob = self.history_freq.get(wid2).unwrap_or(unigram_prob);
-            let user_gain = (user_unigram_prob - unigram_prob).neg();
-            let user_manual_freq = (self.user_freq.get(wid2).unwrap_or(0) as f64 + 1.0).log10();
-            let cost = general_cost
-                - HISTORY_BOOST_FACTOR * user_gain
-                - MANUAL_BOOST_FACTOR * user_manual_freq;
+            // let hist_unigram_prob = self.history_freq.get(wid2).unwrap_or(unigram_prob);
+            // let hist_gain = (hist_unigram_prob - unigram_prob).neg();
+            let hist_gain = 0.0;
+            let manual_freq = w2boost as f64;
+            let manual_gain = if manual_freq >= 0.0 {
+                (manual_freq + 1.0).log10()
+            } else {
+                -manual_freq.abs().log10()
+            };
+            let cost =
+                general_cost - HISTORY_BOOST_FACTOR * hist_gain - MANUAL_BOOST_FACTOR * manual_gain;
             cost
         });
 
@@ -108,7 +113,7 @@ struct StateCoord {
 /// https://jair.org/index.php/jair/article/view/10995
 fn find_k_paths<F>(k: u8, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
 where
-    F: Fn(Surface, Surface) -> f64,
+    F: Fn(Surface, Surface, i32) -> f64,
 {
     let h = future_cost(lattice, &cost_fn);
     let len = lattice.len;
@@ -136,7 +141,7 @@ where
         }
 
         if path.front.curr.end as usize == len {
-            results.push(reconstruct(&trails, path.tid));
+            results.push((reconstruct(&trails, path.tid), path.cost));
             if results.len() == k as usize {
                 break;
             }
@@ -144,7 +149,7 @@ where
         }
 
         for e in &lattice.edges[path.front.curr.end as usize] {
-            let cost = path.cost + cost_fn(path.front.curr.surface, e.surface);
+            let cost = path.cost + cost_fn(path.front.curr.surface, e.surface, e.boost);
             let front = StateCoord {
                 prev: path.front.curr.surface,
                 curr: *e,
@@ -164,7 +169,7 @@ where
     }
     results
         .into_iter()
-        .map(|edges| Hypothesis { edges })
+        .map(|(edges, cost)| Hypothesis { edges, cost })
         .collect()
 }
 
@@ -205,14 +210,14 @@ impl Ord for OrderedF64 {
 // DAG with start < end, so process nodes in decreasing order.
 fn future_cost<F>(lattice: &WordLattice, cost_fn: F) -> Vec<f64>
 where
-    F: Fn(Surface, Surface) -> f64,
+    F: Fn(Surface, Surface, i32) -> f64,
 {
     let len = lattice.len;
     let mut h = vec![f64::INFINITY; len + 1];
     h[len] = 0.0;
     for v in (0..len).rev() {
         for e in &lattice.edges[v] {
-            let cost = cost_fn(Surface::None, e.surface);
+            let cost = cost_fn(Surface::None, e.surface, e.boost);
             let c = cost + h[e.end as usize];
             if c < h[v] {
                 h[v] = c;

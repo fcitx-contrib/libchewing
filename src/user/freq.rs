@@ -14,7 +14,9 @@
 
 use std::{
     collections::BTreeMap,
+    fs::File,
     io::{BufRead, BufReader, Read},
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -33,18 +35,38 @@ pub struct UserFreq {
 
 #[derive(Debug, Default)]
 struct UserFreqInner {
-    freq_table: BTreeMap<WordId, u32>,
+    freq_table: BTreeMap<WordId, i32>,
 }
 
 impl UserFreq {
-    pub const MIN: u32 = 1;
-    pub const MAX: u32 = 9_999_999;
+    pub const MIN: i32 = -9_999_999;
+    pub const MAX: i32 = 9_999_999;
 
     // Creates an empty UserFreq
     pub fn new() -> UserFreq {
         UserFreq {
             inner: Default::default(),
         }
+    }
+    /// Initialize an empty UserDict on the filesystem.
+    ///
+    /// If a file already exists then it will be truncated.
+    pub fn init<P: AsRef<Path>>(path: P) -> Result<(), UserFreqError> {
+        expect_error("Failed to initialize UserFreq", || {
+            File::create(path)?;
+            Ok(())
+        })
+    }
+    /// Open an UserDict file and read from it.
+    pub fn open<P: AsRef<Path>, F>(path: P, widmap: F) -> Result<UserFreq, UserFreqError>
+    where
+        F: Fn(&str) -> WordId,
+    {
+        expect_error("Failed to open user dictionary", || {
+            let file = File::open(path)?;
+            let reader = BufReader::new(file);
+            Ok(UserFreq::from_reader(reader, widmap)?)
+        })
     }
     // Reads user freq from an IO stream
     pub fn from_reader<R, F>(read: R, widmap: F) -> Result<UserFreq, UserFreqError>
@@ -60,7 +82,7 @@ impl UserFreq {
                 let (word, freq) = line
                     .split_once(',')
                     .ok_or_else(|| format!("invalid format at line {i}: {line}"))?;
-                let freq = freq.parse::<u32>()?.clamp(Self::MIN, Self::MAX);
+                let freq = freq.parse::<i32>()?.clamp(Self::MIN, Self::MAX);
                 let wid = widmap(&word);
                 freq_table.insert(wid, freq);
             }
@@ -70,7 +92,7 @@ impl UserFreq {
         })
     }
     // Gets the user freq of word
-    pub fn get(&self, wid: WordId) -> Option<u32> {
+    pub fn get(&self, wid: WordId) -> Option<i32> {
         let lock = self
             .inner
             .read()
@@ -98,6 +120,7 @@ mod test {
             "測試" => WordId(0),
             "酷音" => WordId(1),
             "通過" => WordId(2),
+            "刪除" => WordId(3),
             _ => panic!(),
         }
     }
@@ -105,15 +128,16 @@ mod test {
     #[test]
     fn load_from_file() -> Result<(), Box<dyn Error>> {
         let mut file = tempfile::NamedTempFile::new()?;
-        file.write_all("測試,0\n酷音,10000000\n通過,1000".as_bytes())?;
+        file.write_all("測試,0\n酷音,10000000\n通過,1000\n刪除,-1000".as_bytes())?;
         file.flush()?;
         file.seek(std::io::SeekFrom::Start(0))?;
 
         let user_freq = UserFreq::from_reader(file, widmap)?;
-        assert_eq!(Some(1), user_freq.get(WordId(0)));
+        assert_eq!(Some(0), user_freq.get(WordId(0)));
         assert_eq!(Some(9999999), user_freq.get(WordId(1)));
         assert_eq!(Some(1000), user_freq.get(WordId(2)));
-        assert_eq!(None, user_freq.get(WordId(3)));
+        assert_eq!(Some(-1000), user_freq.get(WordId(3)));
+        assert_eq!(None, user_freq.get(WordId(4)));
 
         Ok(())
     }

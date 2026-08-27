@@ -5,10 +5,13 @@ use std::{
     cmp::{max, min},
     error::Error,
     fmt::{Debug, Display},
+    fs::File,
+    io::BufReader,
     mem,
 };
 
 use log::{debug, error, info, warn};
+use scoped_error::{ErrorExt, expect_error, impl_context_error};
 
 pub use self::estimate::{LaxUserFreqEstimate, UserFreqEstimate};
 pub use self::{abbrev::AbbrevTable, selection::symbol::SymbolSelector};
@@ -19,15 +22,15 @@ use self::{
 };
 use crate::{
     conversion::{
-        ChewingEngine, ConversionEngine, Interval, Symbol, full_width_symbol_input,
-        special_symbol_input,
+        ChewingEngine, ConversionEngine, Decoder, Interval, Outcome, Selection, Symbol,
+        WordLatticeBuilder, full_width_symbol_input, special_symbol_input,
     },
-    dictionary::{
-        AssetLoader, Dictionary, DictionaryUsage, Layered, LookupStrategy, Trie,
-        UpdateDictionaryError, UserDictionaryManager,
-    },
+    dictionary::{CompositeDict, LookupStrategy, StringTable, UpdateDictionaryError},
     exn::{Exn, ResultExt},
     input::{KeyState, KeyboardEvent, keysym::*},
+    lm::{LoadMode, StaticDict, StaticLm},
+    path::SearchPath,
+    user::{HistoryDict, HistoryFreq, UserDict, migrate_v3_to_v4, should_migrate_v3},
     zhuyin::Syllable,
 };
 
@@ -155,13 +158,18 @@ pub struct Editor {
 
 #[derive(Debug)]
 pub(crate) struct SharedState {
+    // static_words_path: PathBuf,
+    // static_dict_path: PathBuf,
+    // user_datadir: Option<PathBuf>,
+    // static_words: StringTable,
+    // static_dict: StaticDict,
     com: CompositionEditor,
     syl: Box<dyn SyllableEditor>,
     conv: Box<dyn ConversionEngine>,
-    dict: Layered,
+    dict: CompositeDict,
+    user_dict: UserDict,
     abbr: AbbrevTable,
     sym_sel: SymbolSelector,
-    estimate: LaxUserFreqEstimate,
     options: EditorOptions,
     last_key_behavior: EditorKeyBehavior,
 
@@ -172,95 +180,127 @@ pub(crate) struct SharedState {
 }
 
 impl Editor {
-    pub fn chewing<T>(
+    pub fn chewing(
         search_path: Option<String>,
         userpath: Option<String>,
-        enabled_dicts: &[T],
-    ) -> Editor
-    where
-        T: AsRef<str>,
-    {
-        let mut enabled_dicts: Vec<String> = enabled_dicts
-            .iter()
-            .map(|it| it.as_ref().to_owned())
-            .collect();
-        let mut user_dict_mgr = UserDictionaryManager::new();
-        let user_dict = {
-            let mut custom_userpath = false;
-            if let Some(userpath) = userpath {
-                custom_userpath = true;
-                user_dict_mgr = user_dict_mgr.userphrase_path(userpath);
-            }
-            if custom_userpath && let Some(file_name) = user_dict_mgr.file_name() {
-                // If we load user dictionary from passed in path then we should not load it again.
-                if let Some(index) = enabled_dicts.iter().position(|d| d == &file_name) {
-                    enabled_dicts.remove(index);
+    ) -> Result<Editor, NewEditorError> {
+        expect_error("Failed to initialize new chewing Editor", || {
+            let sp = match (search_path, userpath) {
+                (Some(s), Some(u)) => SearchPath::from_system_path_and_user_path(&s, &u),
+                (Some(s), None) => SearchPath::from_system_path_and_env(&s),
+                (None, Some(u)) => SearchPath::from_user_path_and_env(&u),
+                (None, None) => SearchPath::from_env(),
+            };
+
+            let static_dict_path = sp
+                .find_file("static_dict.bin")
+                .ok_or("Failed to find static_dict.bin file")?;
+            let static_words_path = sp
+                .find_file("static_words.txt")
+                .ok_or("Failed to find static_words.txt file")?;
+
+            let static_dict =
+                StaticDict::from_reader(BufReader::new(File::open(&static_dict_path)?))?;
+            let static_words = StringTable::open(&static_words_path)?;
+
+            if let Some(up) = sp.user_datadir() {
+                if should_migrate_v3(up) {
+                    migrate_v3_to_v4(up, &static_dict, &static_words)?;
                 }
             }
-            let user_dict = user_dict_mgr
-                .init()
-                .inspect_err(|error| {
-                    error!("Failed to load user dict: {error}");
-                })
-                .ok();
-            if custom_userpath { user_dict } else { None }
-        };
-        if enabled_dicts.iter().any(|d| d == "chewing-deleted.dat") {
-            if let Err(error) = user_dict_mgr.init_deleted() {
-                error!("Failed to load user exclusion dict: {error}");
-            }
-        }
-        let mut loader = AssetLoader::new();
-        if let Some(syspath) = search_path {
-            loader = loader.search_path(syspath);
-        }
-        let mut dicts = loader.load(&enabled_dicts);
-        if let Some(user_dict) = user_dict {
-            dicts.push(user_dict);
-        }
-        if !dicts.iter().any(|dict| {
-            matches!(
-                dict.about().usage,
-                DictionaryUsage::BuiltIn | DictionaryUsage::Extension | DictionaryUsage::Custom
-            )
-        }) {
-            let builtin = Trie::new(&include_bytes!("data/mini.dat")[..]);
-            error!("Failed to load any system dictionaries");
-            error!("Loading builtin mini dictionary...");
-            // SAFETY: we can unwrap because the built-in dictionary should always be valid.
-            dicts.insert(0, Box::new(builtin.unwrap()));
-        }
 
-        let abbrev = loader.load_abbrev();
-        let abbrev = match abbrev {
-            Ok(abbr) => abbr,
-            Err(e) => {
-                error!("Failed to load abbrev table: {e}");
-                error!("Loading empty table...");
-                AbbrevTable::new()
+            let mut user_dict_path = sp.find_user_file("user_dict.csv");
+            if user_dict_path.is_none() {
+                if let Some(path) = sp.user_file_path("user_dict.csv") {
+                    if let Err(err) = UserDict::init(path) {
+                        error!("{}", err.report());
+                    }
+                }
+                // try again
+                user_dict_path = sp.find_user_file("user_dict.csv");
             }
-        };
-        let sym_sel = loader.load_symbol_selector();
-        let sym_sel = match sym_sel {
-            Ok(sym_sel) => sym_sel,
-            Err(e) => {
-                error!("Failed to load symbol table: {e}");
-                error!("Loading empty table...");
-                // NB: we can unwrap here because empty table is always valid.
-                SymbolSelector::new(b"".as_slice()).unwrap()
+            let user_dict = match user_dict_path {
+                Some(path) => match UserDict::open(&path) {
+                    Ok(dict) => dict,
+                    Err(err) => {
+                        error!("{}", err.report());
+                        UserDict::new()
+                    }
+                },
+                None => UserDict::new(),
+            };
+
+            let mut history_dict_path = sp.find_user_file("history_dict.bin");
+            if history_dict_path.is_none() {
+                if let Some(path) = sp.user_file_path("history_dict.bin") {
+                    if let Err(err) = HistoryDict::init(path) {
+                        error!("{}", err.report());
+                    }
+                }
+                // try again
+                history_dict_path = sp.find_user_file("history_dict.bin");
             }
-        };
-        let mut dict = Layered::new(dicts);
-        let estimate = LaxUserFreqEstimate::max_from(dict.user_dict_mut());
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
-        editor
+            let history_dict = match history_dict_path {
+                Some(path) => match HistoryDict::open(&path) {
+                    Ok(dict) => dict,
+                    Err(err) => {
+                        error!("{}", err.report());
+                        HistoryDict::new()
+                    }
+                },
+                None => HistoryDict::new(),
+            };
+
+            // let history_freq_path = sp
+            //     .find_user_file("history_freq.bin")
+            //     .ok_or("Failed to find history_freq.bin")?;
+            let history_freq = HistoryFreq::new();
+
+            let static_lm_path = sp
+                .find_file("static_lm.bin")
+                .ok_or("Failed to find static_lm.bin file")?;
+            let lm = StaticLm::from_reader(
+                BufReader::new(File::open(&static_lm_path)?),
+                // Lazy mode is too slow for now
+                LoadMode::Eager,
+            )?;
+
+            let word_lattice_builder = WordLatticeBuilder {
+                static_dict: static_dict.clone(),
+                history_dict: history_dict.clone(),
+                user_dict: user_dict.clone(),
+            };
+
+            let decoder = Decoder { history_freq, lm };
+
+            let conversion_engine = Box::new(ChewingEngine {
+                word_lattice_builder,
+                decoder,
+                static_words: static_words.clone(),
+                lookup_strategy: LookupStrategy::Standard,
+            });
+
+            let composite_dict =
+                CompositeDict::new(static_dict, static_words, history_dict, user_dict.clone());
+
+            let abbrev = AbbrevTable::new();
+            let sym_sel = SymbolSelector::new(b"".as_slice())?;
+
+            let editor = Editor::new(
+                conversion_engine,
+                composite_dict,
+                user_dict,
+                abbrev,
+                sym_sel,
+            );
+            Ok(editor)
+        })
     }
 
     pub fn new(
         conv: Box<dyn ConversionEngine>,
-        dict: Layered,
-        estimate: LaxUserFreqEstimate,
+        dict: CompositeDict,
+        user_dict: UserDict,
         abbr: AbbrevTable,
         sym_sel: SymbolSelector,
     ) -> Editor {
@@ -270,9 +310,9 @@ impl Editor {
                 syl: Box::new(Standard::new()),
                 conv,
                 dict,
+                user_dict,
                 abbr,
                 sym_sel,
-                estimate,
                 options: EditorOptions::default(),
                 last_key_behavior: EditorKeyBehavior::Absorb,
                 dirty_level: 0,
@@ -338,8 +378,8 @@ impl Editor {
     pub fn symbols(&self) -> &[Symbol] {
         self.shared.com.symbols()
     }
-    pub fn user_dict(&mut self) -> &mut dyn Dictionary {
-        self.shared.dict.user_dict_mut()
+    pub fn user_dict(&self) -> &UserDict {
+        &self.shared.user_dict
     }
     pub fn learn_phrase(
         &mut self,
@@ -364,7 +404,7 @@ impl Editor {
         let any = self.state.as_ref() as &dyn Any;
         if let Some(selecting) = any.downcast_ref::<Selecting>() {
             Ok(selecting
-                .candidates(&self.shared, &self.shared.dict)
+                .candidates(&self.shared)
                 .into_iter()
                 .skip(selecting.page_no * self.shared.options.candidates_per_page)
                 .collect())
@@ -375,7 +415,7 @@ impl Editor {
     pub fn all_candidates(&self) -> Result<Vec<String>, EditorError> {
         let any = self.state.as_ref() as &dyn Any;
         if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.candidates(&self.shared, &self.shared.dict))
+            Ok(selecting.candidates(&self.shared))
         } else {
             Err(EditorError::new(EditorErrorKind::InvalidState))
         }
@@ -391,7 +431,7 @@ impl Editor {
     pub fn total_page(&self) -> Result<usize, EditorError> {
         let any = self.state.as_ref() as &dyn Any;
         if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.total_page(&self.shared, &self.shared.dict))
+            Ok(selecting.total_page(&self.shared))
         } else {
             Err(EditorError::new(EditorErrorKind::InvalidState))
         }
@@ -450,6 +490,9 @@ impl Editor {
     }
     pub fn is_empty(&self) -> bool {
         self.shared.com.is_empty()
+    }
+    pub fn hypotheses(&self) -> Vec<Outcome> {
+        self.shared.hypotheses()
     }
     /// TODO: doc, rename this to `render`?
     pub fn display(&self) -> String {
@@ -582,11 +625,14 @@ impl SharedState {
         self.nth_conversion = 0;
     }
     fn conversion(&self) -> Vec<Interval> {
-        let paths = self.conv.convert(&self.dict, self.com.as_ref());
+        let paths = self.conv.convert(self.com.as_ref());
         if paths.is_empty() {
             return vec![];
         }
         paths[self.nth_conversion % paths.len()].intervals.clone()
+    }
+    fn hypotheses(&self) -> Vec<Outcome> {
+        self.conv.convert(self.com.as_ref())
     }
     fn intervals(&self) -> impl DoubleEndedIterator<Item = Interval> + use<> {
         self.conversion().into_iter()
@@ -602,7 +648,7 @@ impl SharedState {
                 continue;
             }
             if interval.is_phrase {
-                self.com.select(interval);
+                // self.com.select(interval);
             }
         }
         self.nth_conversion = 0;
@@ -652,15 +698,15 @@ impl SharedState {
             .skip(start)
             .take(end - start)
             .collect::<String>();
-        if self
-            .dict
-            .user_dict_mut()
-            .lookup(&syllables, LookupStrategy::Standard)
-            .into_iter()
-            .any(|it| it.as_str() == phrase)
-        {
-            return Err(format!("已有：{phrase}"));
-        }
+        // if self
+        //     .dict
+        //     .user_dict_mut()
+        //     .lookup(&syllables, LookupStrategy::Standard)
+        //     .into_iter()
+        //     .any(|it| it.as_str() == phrase)
+        // {
+        //     return Err(format!("已有：{phrase}"));
+        // }
         let result = self
             .learn_phrase(&syllables, &phrase)
             .map_err(|_| "加詞失敗：字數不符或夾雜符號".to_owned());
@@ -683,32 +729,32 @@ impl SharedState {
             ))
             .or_raise(|| EditorError::new(EditorErrorKind::InvalidState));
         }
-        let phrases = self.dict.lookup(syllables, LookupStrategy::Standard);
-        if phrases.is_empty() {
-            self.dict
-                .add_phrase(syllables, (phrase, 10).into())
-                .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
-            return Ok(());
-        }
-        let phrase = phrases
-            .iter()
-            .find(|p| p.as_str() == phrase)
-            .cloned()
-            .unwrap_or((phrase, 10).into());
-        // TODO: fine tune learning curve
-        let max_freq = phrases.iter().map(|p| p.freq()).max().unwrap_or(1);
-        let user_freq = self.estimate.estimate(&phrase, max_freq);
-        let time = self.estimate.now();
+        // let phrases = self.dict.lookup(syllables, LookupStrategy::Standard);
+        // if phrases.is_empty() {
+        //     self.dict
+        //         .add_phrase(syllables, (phrase, 10).into())
+        //         .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
+        //     return Ok(());
+        // }
+        // let phrase = phrases
+        //     .iter()
+        //     .find(|p| p.as_str() == phrase)
+        //     .cloned()
+        //     .unwrap_or((phrase, 10).into());
+        // // TODO: fine tune learning curve
+        // let max_freq = phrases.iter().map(|p| p.freq()).max().unwrap_or(1);
+        // let user_freq = self.estimate.estimate(&phrase, max_freq);
+        // let time = self.estimate.now();
 
-        let _ = self.dict.update_phrase(syllables, phrase, user_freq, time);
+        // let _ = self.dict.update_phrase(syllables, phrase, user_freq, time);
         self.dirty_level += 1;
         Ok(())
     }
     fn unlearn_phrase(&mut self, syllables: &[Syllable], phrase: &str) -> Result<(), EditorError> {
-        let _ = self
-            .dict
-            .remove_phrase(syllables, phrase)
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
+        // let _ = self
+        //     .dict
+        //     .remove_phrase(syllables, phrase)
+        //     .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
         self.dirty_level += 1;
         Ok(())
     }
@@ -773,15 +819,15 @@ impl SharedState {
         self.last_key_behavior = EditorKeyBehavior::Commit;
     }
     fn auto_learn(&mut self, intervals: &[Interval]) {
-        for (syllables, phrase) in collect_new_phrases(intervals, self.com.symbols()) {
-            if self.dict.is_excluded(&syllables, &phrase) {
-                debug!("skip autolearn excluded phrase {phrase} {syllables:?}");
-                continue;
-            }
-            if let Err(error) = self.learn_phrase(&syllables, &phrase) {
-                error!("Failed to learn phrase {phrase} from {syllables:?}: {error:#}");
-            }
-        }
+        // for (syllables, phrase) in collect_new_phrases(intervals, self.com.symbols()) {
+        //     if self.dict.is_excluded(&syllables, &phrase) {
+        //         debug!("skip autolearn excluded phrase {phrase} {syllables:?}");
+        //         continue;
+        //     }
+        //     if let Err(error) = self.learn_phrase(&syllables, &phrase) {
+        //         error!("Failed to learn phrase {phrase} from {syllables:?}: {error:#}");
+        //     }
+        // }
     }
 }
 
@@ -857,7 +903,7 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
 impl BasicEditor for Editor {
     fn process_keyevent(&mut self, key_event: KeyboardEvent) -> EditorKeyBehavior {
         info!("process {}", key_event);
-        self.shared.estimate.tick();
+        // self.shared.estimate.tick();
         // reset?
         self.shared.notice_buffer.clear();
         if self.shared.last_key_behavior == EditorKeyBehavior::Commit {
@@ -895,8 +941,8 @@ impl BasicEditor for Editor {
         debug!("comp: {:?}", &self.shared.com);
         const DIRTY_THRESHOLD: u16 = 0;
         if self.shared.dirty_level > DIRTY_THRESHOLD {
-            let _ = self.shared.dict.reopen();
-            let _ = self.shared.dict.flush();
+            // let _ = self.shared.dict.reopen();
+            // let _ = self.shared.dict.flush();
             self.shared.dirty_level = 0;
         }
         self.shared.last_key_behavior
@@ -1300,34 +1346,34 @@ impl State for EnteringSyllable {
                 match key_behavior {
                     KeyBehavior::Absorb => self.spin_absorb(),
                     KeyBehavior::Fuzzy(syl) => {
-                        if !shared
-                            .dict
-                            .lookup(&[syl], shared.options.lookup_strategy)
-                            .is_empty()
-                        {
-                            shared.com.insert(Symbol::from(syl));
-                        }
+                        // if !shared
+                        //     .dict
+                        //     .lookup(&[syl], shared.options.lookup_strategy)
+                        //     .is_empty()
+                        // {
+                        //     shared.com.insert(Symbol::from(syl));
+                        // }
                         self.spin_absorb()
                     }
                     KeyBehavior::Commit => {
-                        if !shared
-                            .dict
-                            .lookup(&[shared.syl.read()], shared.options.lookup_strategy)
-                            .is_empty()
-                        {
-                            shared.com.insert(Symbol::from(shared.syl.read()));
-                            shared.syl.clear();
-                            if shared.options.conversion_engine
-                                == ConversionEngineKind::SimpleEngine
-                            {
-                                self.start_selecting_simple_engine(shared)
-                            } else {
-                                self.start_entering()
-                            }
-                        } else {
-                            shared.syl.clear();
-                            self.start_entering()
-                        }
+                        // if !shared
+                        //     .dict
+                        //     .lookup(&[shared.syl.read()], shared.options.lookup_strategy)
+                        //     .is_empty()
+                        // {
+                        shared.com.insert(Symbol::from(shared.syl.read()));
+                        shared.syl.clear();
+                        //     if shared.options.conversion_engine
+                        //         == ConversionEngineKind::SimpleEngine
+                        //     {
+                        //         self.start_selecting_simple_engine(shared)
+                        //     } else {
+                        //         self.start_entering()
+                        //     }
+                        // } else {
+                        shared.syl.clear();
+                        self.start_entering()
+                        // }
                     }
                     _ => self.spin_bell(),
                 }
@@ -1396,17 +1442,22 @@ impl Selecting {
             }
         }
     }
-    fn candidates(&self, editor: &SharedState, dict: &Layered) -> Vec<String> {
+    fn candidates(&self, editor: &SharedState) -> Vec<String> {
         let res = match &self.sel {
-            Selector::Phrase(sel) => sel.candidates(editor, dict),
+            Selector::Phrase(sel) => sel
+                .candidates(editor)
+                .into_iter()
+                .filter_map(|wid| editor.dict.get_text(wid))
+                .map(|s| s.into())
+                .collect(),
             Selector::Symbol(sel) => sel.menu(),
             Selector::SpecialSymmbol(sel) => sel.menu(),
         };
         debug!("show candidates: {res:?}");
         res
     }
-    fn total_page(&self, editor: &SharedState, dict: &Layered) -> usize {
-        self.candidates(editor, dict)
+    fn total_page(&self, editor: &SharedState) -> usize {
+        self.candidates(editor)
             .len()
             .div_ceil(editor.options.candidates_per_page)
     }
@@ -1414,12 +1465,16 @@ impl Selecting {
         let offset = self.page_no * editor.options.candidates_per_page + n;
         match self.sel {
             Selector::Phrase(ref sel) => {
-                let candidates = sel.candidates(editor, &editor.dict);
+                let candidates = sel.candidates(editor);
                 match candidates.get(offset) {
-                    Some(phrase) => {
-                        let interval = sel.interval(phrase.as_str());
-                        let len = interval.len();
-                        editor.com.select(interval);
+                    Some(wid) => {
+                        let selection = Selection {
+                            start: sel.begin(),
+                            end: sel.end(),
+                            wid: *wid,
+                        };
+                        let len = selection.len();
+                        editor.com.select(selection);
                         debug!("Auto Shift {}", editor.options.auto_shift_cursor);
                         editor.com.pop_cursor();
                         if editor.options.auto_shift_cursor {
@@ -1490,7 +1545,7 @@ impl State for Selecting {
                 self.start_entering()
             }
             SYM_DOWN | SYM_SPACE => {
-                if self.page_no + 1 < self.total_page(shared, &shared.dict) {
+                if self.page_no + 1 < self.total_page(shared) {
                     self.page_no += 1;
                 } else {
                     self.page_no = 0;
@@ -1559,12 +1614,12 @@ impl State for Selecting {
                 if self.page_no > 0 {
                     self.page_no -= 1;
                 } else {
-                    self.page_no = self.total_page(shared, &shared.dict).saturating_sub(1);
+                    self.page_no = self.total_page(shared).saturating_sub(1);
                 }
                 self.spin_absorb()
             }
             SYM_RIGHT | SYM_PAGEDOWN => {
-                if self.page_no + 1 < self.total_page(shared, &shared.dict) {
+                if self.page_no + 1 < self.total_page(shared) {
                     self.page_no += 1;
                 } else {
                     self.page_no = 0;
@@ -1663,6 +1718,7 @@ impl Display for EditorError {
 }
 
 impl_exn!(EditorError);
+impl_context_error!(pub NewEditorError);
 
 #[cfg(test)]
 mod tests {

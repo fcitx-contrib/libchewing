@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
     fs::File,
     io::{BufRead, BufWriter, Write, stdin},
@@ -83,7 +84,7 @@ pub(crate) fn learn_lm_with_config(
     config: &PruningConfig,
 ) -> Result<()> {
     let words_table = StringTable::open(words)?;
-    let words_map: FxHashMap<&str, u32> = words_table.iter().collect();
+    let words_map: FxHashMap<Cow<'_, str>, u32> = words_table.iter().collect();
 
     let stdin = stdin();
     let n_threads = std::thread::available_parallelism()?.get();
@@ -194,7 +195,7 @@ pub(crate) fn learn_lm_with_config(
 
     writeln!(out, r"\1-grams:")?;
     for (&wid, &count) in &unigrams {
-        let word = words_table.get(wid.0).expect("should have word");
+        let word = words_table.get(wid).expect("should have word");
         let log10prob = (count as f64 / unigram_total as f64).log10();
         writeln!(out, "{:.4} {}", log10prob, word)?;
     }
@@ -205,8 +206,8 @@ pub(crate) fn learn_lm_with_config(
         let cwp = unigrams.get(&wid1).expect("should have unigram");
         let log10prob = (count as f64 / *cwp as f64).log10();
 
-        let word1 = words_table.get(wid1.0).expect("should have word");
-        let word2 = words_table.get(wid2.0).expect("should have word");
+        let word1 = words_table.get(wid1).expect("should have word");
+        let word2 = words_table.get(wid2).expect("should have word");
         writeln!(out, "{:.4} {} {}", log10prob, word1, word2)?;
     }
 

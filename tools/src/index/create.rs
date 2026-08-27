@@ -35,7 +35,7 @@ pub(crate) fn create_index(src: &Path, words: &Path, out: &Path) -> Result<()> {
             syllables.push(Syllable::from_str(syl_str)?);
         }
 
-        if let Some(wid) = words_map.get(&word) {
+        if let Some(wid) = words_map.get(word.into()) {
             builder.insert(&syllables, WordId(*wid));
         }
     }

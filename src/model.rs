@@ -19,6 +19,12 @@ impl Display for WordId {
     }
 }
 
+impl From<u32> for WordId {
+    fn from(value: u32) -> Self {
+        WordId(value)
+    }
+}
+
 impl WordId {
     pub(crate) const MIN_STATIC: WordId = WordId(0x00000000);
     pub(crate) const MIN_HISTORY: WordId = WordId(0x01000000);
@@ -26,6 +32,12 @@ impl WordId {
     pub(crate) const MIN_USER: WordId = WordId(0x0F000000);
     pub(crate) fn inc(&mut self) {
         self.0 += 1;
+    }
+    pub(crate) fn as_offset(&self) -> usize {
+        (self.0 & 0x00FFFFFF) as usize
+    }
+    pub(crate) fn from_user(id: u32) -> WordId {
+        WordId(Self::MIN_USER.0 + id)
     }
 }
 
@@ -45,7 +57,10 @@ pub enum WordOrig {
 }
 
 impl WordId {
-    fn orig(&self) -> WordOrig {
+    pub const MIN: WordId = WordId(u32::MIN);
+    pub const MAX: WordId = WordId(u32::MAX);
+
+    pub fn orig(&self) -> WordOrig {
         let prefix = self.0 & 0xFF000000;
         match prefix {
             0x00000000 => WordOrig::Static,

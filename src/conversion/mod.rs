@@ -11,7 +11,7 @@ pub use self::fuzzy::FuzzyChewingEngine;
 pub use self::simple::SimpleEngine;
 pub(crate) use self::symbol::{full_width_symbol_input, special_symbol_input};
 pub use self::word_lattice::{WordLattice, WordLatticeBuilder};
-use crate::{dictionary::Dictionary, zhuyin::Syllable};
+use crate::{model::WordId, zhuyin::Syllable};
 
 mod chewing;
 mod decoder;
@@ -26,13 +26,13 @@ mod word_lattice;
 /// put intervals should cover the whole range of inputs, sorted in first in
 /// first out order.
 pub trait ConversionEngine: Debug {
-    fn convert<'a>(&'a self, dict: &'a dyn Dictionary, comp: &'a Composition) -> Vec<Outcome>;
+    fn convert<'a>(&'a self, comp: &'a Composition) -> Vec<Outcome>;
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Outcome {
-    pub(crate) intervals: Vec<Interval>,
-    pub(crate) log_prob: f64,
+    pub intervals: Vec<Interval>,
+    pub cost: f64,
 }
 
 /// Output of conversion.
@@ -160,6 +160,32 @@ impl From<char> for Symbol {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Selection {
+    /// The starting offset of the interval.
+    pub start: usize,
+    /// The end (exclusive) of the interval.
+    pub end: usize,
+    /// The selected word_id.
+    pub wid: WordId,
+}
+
+impl Selection {
+    pub fn len(&self) -> usize {
+        self.end - self.start
+    }
+    pub fn is_contained_by(&self, start: usize, end: usize) -> bool {
+        start <= self.start && end >= self.end
+    }
+    /// Whether the selection covers the part of the other selection.
+    pub fn intersect(&self, other: &Selection) -> bool {
+        self.intersect_range(other.start, other.end)
+    }
+    fn intersect_range(&self, start: usize, end: usize) -> bool {
+        max(self.start, start) < min(self.end, end)
+    }
+}
+
 /// Input data collected by the Editor.
 #[derive(Debug, Default, Clone)]
 pub struct Composition {
@@ -168,7 +194,7 @@ pub struct Composition {
     /// User indicates offset that shouldn't form a phrase.
     gaps: Vec<Gap>,
     /// User set constraint on that output must match.
-    selections: Vec<Interval>,
+    selections: Vec<Selection>,
 }
 
 impl Composition {
@@ -213,7 +239,7 @@ impl Composition {
     pub fn gaps(&self) -> &[Gap] {
         &self.gaps
     }
-    pub fn selections(&self) -> &[Interval] {
+    pub fn selections(&self) -> &[Selection] {
         &self.selections
     }
     pub fn gap(&self, index: usize) -> Option<Gap> {
@@ -277,21 +303,21 @@ impl Composition {
         self.symbols[index] = sym;
         self.set_gap(index, Gap::Normal);
     }
-    pub fn push_selection(&mut self, interval: Interval) {
-        assert!(interval.end <= self.len());
+    pub fn push_selection(&mut self, selection: Selection) {
+        assert!(selection.end <= self.len());
         let mut to_remove = vec![];
         for (i, selection) in self.selections.iter().enumerate() {
-            if selection.intersect(&interval) {
+            if selection.intersect(&selection) {
                 to_remove.push(i);
             }
         }
         for i in to_remove.into_iter().rev() {
             self.selections.swap_remove(i);
         }
-        for i in (interval.start..interval.end).skip(1) {
+        for i in (selection.start..selection.end).skip(1) {
             self.gaps[i] = Gap::Normal;
         }
-        self.selections.push(interval);
+        self.selections.push(selection);
     }
     pub fn remove_front(&mut self, n: usize) {
         assert!(n <= self.len());

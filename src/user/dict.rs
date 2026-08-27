@@ -1,7 +1,10 @@
 //! User editable dictionary source
 
 use std::{
-    io::{BufRead, Write},
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    path::Path,
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 
@@ -26,11 +29,33 @@ pub struct UserDict {
 }
 
 impl UserDict {
+    pub const MIN: i32 = -9_999_999;
+    pub const MAX: i32 = 9_999_999;
+
     /// Returns an empty UserDict
     pub fn new() -> UserDict {
         UserDict {
             inner: Arc::new(RwLock::new(IndexedDict::new(WordId::MIN_USER))),
         }
+    }
+    /// Initialize an empty UserDict on the filesystem.
+    ///
+    /// If a file already exists then it will be truncated.
+    pub fn init<P: AsRef<Path>>(path: P) -> Result<(), UserDictError> {
+        expect_error("Failed to initialize UserDict", || {
+            let dict = Self::new();
+            let file = File::create(path)?;
+            dict.to_writer(file)?;
+            Ok(())
+        })
+    }
+    /// Open an UserDict file and read from it.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<UserDict, UserDictError> {
+        expect_error("Failed to open user dictionary", || {
+            let file = File::open(path)?;
+            let reader = BufReader::new(file);
+            Ok(UserDict::from_reader(reader)?)
+        })
     }
     /// Reads user dictionary from an IO stream
     pub fn from_reader<R: BufRead>(readr: R) -> Result<UserDict, UserDictError> {
@@ -38,11 +63,19 @@ impl UserDict {
             let mut idict = IndexedDict::new(WordId::MIN_USER);
             for (i, io) in readr.lines().enumerate() {
                 let line = io?;
-                let (word, bopomofo) = line
-                    .split_once(',')
+                let mut parts = line.split(',');
+                let word = parts
+                    .next()
                     .ok_or_else(|| format!("invalid format at line {i}: {line}"))?;
+                let bopomofo = parts
+                    .next()
+                    .ok_or_else(|| format!("invalid format at line {i}: {line}"))?;
+                let boost = parts
+                    .next()
+                    .map(|b| i32::from_str(b).unwrap_or(0).clamp(Self::MIN, Self::MAX))
+                    .unwrap_or(0);
                 let syllables: SyllableVec = parse_syllable_vec(bopomofo.trim())?;
-                idict.insert(syllables, word.to_smolstr());
+                idict.insert(syllables, word.to_smolstr(), boost);
             }
             Ok(UserDict {
                 inner: Arc::new(RwLock::new(idict)),
@@ -71,18 +104,18 @@ impl UserDict {
         lock.get_text(wid)
     }
     /// Gets the WordId from (syllables, word)
-    pub fn get_wid(&self, syllables: &[Syllable], word: &str) -> Option<WordId> {
+    pub fn get_wid(&self, syllables: &[Syllable], word: &str) -> Option<(WordId, i32)> {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire UserDict reader lock");
         lock.get_wid(syllables, word)
     }
-    pub(crate) fn lookup(
+    pub fn lookup(
         &self,
         syllables: &[Syllable],
         strategy: LookupStrategy,
-    ) -> TinyVec<[WordId; 3]> {
+    ) -> TinyVec<[(WordId, i32); 3]> {
         let lock = self
             .inner
             .read()

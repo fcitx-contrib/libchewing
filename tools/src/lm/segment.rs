@@ -12,19 +12,18 @@ use chewing::{
     dictionary::StringTable,
     lm::{LoadMode, StaticLm},
     model::{Surface, WordId},
-    user::{HistoryFreq, UserFreq},
+    user::HistoryFreq,
 };
 use fxhash::FxHashMap;
 
 pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
     let lm = StaticLm::from_reader(File::open(static_lm)?, LoadMode::Eager)?;
     let words_table = StringTable::open(words)?;
-    let words_map: FxHashMap<&str, u32> = words_table.iter().collect();
+    let words_map: FxHashMap<Cow<'_, str>, u32> = words_table.iter().collect();
 
     let stdin = stdin().lock();
 
     let decoder = Decoder {
-        user_freq: UserFreq::new(),
         history_freq: HistoryFreq::new(),
         lm,
     };
@@ -59,7 +58,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
                             .iter()
                             .map(|e| match e.surface {
                                 Surface::Word(wid) => {
-                                    Cow::Borrowed(words_table.get(wid.0).unwrap_or("<unk>"))
+                                    words_table.get(wid).unwrap_or("<unk>".into())
                                 }
                                 Surface::Char(c) => Cow::Owned(c.to_string()),
                                 Surface::None => Cow::Borrowed("<unk>"),

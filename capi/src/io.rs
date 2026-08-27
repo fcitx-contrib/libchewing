@@ -194,7 +194,7 @@ pub unsafe extern "C" fn chewing_new3(
             .map(|p| p.to_owned())
     };
     let kb_compat = KeyboardLayoutCompat::Default;
-    let editor = Editor::chewing(syspath, userpath, &dict_names);
+    let editor = Editor::chewing(syspath, userpath).unwrap();
     let context = Box::new(ChewingContext {
         kb_compat,
         keymap: &QWERTY_MAP,
@@ -530,20 +530,20 @@ pub unsafe extern "C" fn chewing_config_set_int(
         "chewing.conversion_engine" => {
             options.conversion_engine = match value {
                 SIMPLE_CONVERSION_ENGINE => {
-                    ctx.editor
-                        .set_conversion_engine(Box::new(SimpleEngine::new()));
+                    // ctx.editor
+                    //     .set_conversion_engine(Box::new(SimpleEngine::new()));
                     options.lookup_strategy = LookupStrategy::Standard;
                     ConversionEngineKind::SimpleEngine
                 }
                 CHEWING_CONVERSION_ENGINE => {
-                    ctx.editor
-                        .set_conversion_engine(Box::new(ChewingEngine::new()));
+                    // ctx.editor
+                    //     .set_conversion_engine(Box::new(ChewingEngine::new()));
                     options.lookup_strategy = LookupStrategy::Standard;
                     ConversionEngineKind::ChewingEngine
                 }
                 FUZZY_CHEWING_CONVERSION_ENGINE => {
-                    ctx.editor
-                        .set_conversion_engine(Box::new(FuzzyChewingEngine::new()));
+                    // ctx.editor
+                    //     .set_conversion_engine(Box::new(FuzzyChewingEngine::new()));
                     options.lookup_strategy = LookupStrategy::FuzzyPartialPrefix;
                     ConversionEngineKind::FuzzyChewingEngine
                 }
@@ -1277,7 +1277,7 @@ pub unsafe extern "C" fn chewing_userphrase_enumerate(ctx: *mut ChewingContext) 
     let ctx = as_mut_or_return!(ctx, ERROR);
     let _logger_guard = init_scoped_logging(ctx.logger_fn, ctx.logger_data);
 
-    ctx.userphrase_iter = Some(ctx.editor.user_dict().entries().peekable());
+    // ctx.userphrase_iter = Some(ctx.editor.user_dict().entries().peekable());
     OK
 }
 
@@ -1483,13 +1483,14 @@ pub unsafe extern "C" fn chewing_userphrase_lookup(
         None => return 0,
     };
 
+    let ud = ctx.editor.user_dict();
+
     match unsafe { str_from_ptr_with_nul(phrase_buf) } {
-        Some(phrase) => ctx
-            .editor
-            .user_dict()
-            .lookup(&syllables, LookupStrategy::Standard)
-            .iter()
-            .any(|ph| ph.as_str() == phrase) as c_int,
+        Some(phrase) => {
+            ud.lookup(&syllables, LookupStrategy::Standard)
+                .iter()
+                .any(|&(w, _)| ud.get_text(w).is_some_and(|x| x == phrase)) as c_int
+        }
         None => ctx
             .editor
             .user_dict()

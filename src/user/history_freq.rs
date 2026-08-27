@@ -11,6 +11,7 @@ use scoped_error::{bail, expect_error, impl_context_error};
 use crate::{
     bare::{BareDecoder, BareEncoder},
     model::WordId,
+    zhuyin::SyllableVec,
 };
 
 #[derive(Debug, Clone)]
@@ -22,7 +23,7 @@ pub struct HistoryFreq {
 struct HistoryFreqInner {
     half_life: u32,
     generation: u64,
-    history: BTreeMap<WordId, HistoryCount>,
+    history: BTreeMap<(SyllableVec, WordId), HistoryCount>,
 }
 
 #[derive(Debug)]
@@ -76,12 +77,17 @@ impl HistoryFreq {
             let generation = decoder.read_u64()?;
             let records_len = decoder.read_u32()? as usize;
             for _ in 0..records_len {
+                let mut syllables = SyllableVec::new();
+                let syl_len = decoder.read_uint()?;
+                for _ in 0..syl_len {
+                    syllables.push(decoder.read_u16()?.try_into()?);
+                }
                 let raw_word = decoder.read_data()?;
                 let word = str::from_utf8(&raw_word)?;
                 let c_i = decoder.read_u32()?;
                 let b_i = decoder.read_u64()?;
                 let wid = widmap(&word);
-                history.insert(wid, HistoryCount { c_i, b_i });
+                history.insert((syllables, wid), HistoryCount { c_i, b_i });
             }
             Ok(HistoryFreq {
                 inner: Arc::new(RwLock::new(HistoryFreqInner {
@@ -123,10 +129,14 @@ impl HistoryFreq {
                 .count();
             encoder.write_uint(len as u64)?;
 
-            for (wid, c) in lock.history.iter() {
+            for ((syllables, wid), c) in lock.history.iter() {
                 let tc = true_count(lock.half_life as u64, lock.generation, c.c_i, c.b_i);
                 if tc == 0 {
                     continue;
+                }
+                encoder.write_uint(syllables.len() as u64)?;
+                for syl in syllables {
+                    encoder.write_u16(syl.to_u16())?;
                 }
                 let word = widmap(*wid);
                 encoder.write_data(word.as_bytes())?;
@@ -137,17 +147,17 @@ impl HistoryFreq {
             Ok(())
         })
     }
-    // Gets the log10 probability of word from history
-    pub fn get(&self, wid: WordId) -> Option<f64> {
-        let lock = self
-            .inner
-            .read()
-            .expect("Unable to acquire UserFreq reader lock");
-        lock.history
-            .get(&wid)
-            .map(|c| true_count(lock.half_life as u64, lock.generation, c.c_i, c.b_i))
-            .map(|c| (c as f64 / lock.generation as f64).log10())
-    }
+    // // Gets the log10 probability of word from history
+    // pub fn get(&self, wid: WordId) -> Option<f64> {
+    //     let lock = self
+    //         .inner
+    //         .read()
+    //         .expect("Unable to acquire UserFreq reader lock");
+    //     lock.history
+    //         .get(&wid)
+    //         .map(|c| true_count(lock.half_life as u64, lock.generation, c.c_i, c.b_i))
+    //         .map(|c| (c as f64 / lock.generation as f64).log10())
+    // }
 }
 
 // Linear approximation (first-order)
