@@ -14,11 +14,13 @@ use log::{debug, warn};
 const DEFAULT_SYS_PATH: &str = "C:\\Program Files\\ChewingTextService\\Dictionary";
 #[cfg(target_family = "unix")]
 const DEFAULT_SYS_PATH: &str = "/usr/share/libchewing";
+#[cfg(target_family = "wasm")]
+const DEFAULT_SYS_PATH: &str = "/data";
 const SYS_PATH: Option<&str> = option_env!("CHEWING_DATADIR");
 
 #[cfg(target_family = "windows")]
 const SEARCH_PATH_SEP: char = ';';
-#[cfg(target_family = "unix")]
+#[cfg(any(target_family = "unix", target_family = "wasm"))]
 const SEARCH_PATH_SEP: char = ':';
 
 const CURRENT_VERSION_PREFIX: &str = "v4";
