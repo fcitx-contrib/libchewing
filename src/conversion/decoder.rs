@@ -143,6 +143,10 @@ where
         if path.front.curr.end as usize == len {
             results.push((reconstruct(&trails, path.tid), path.cost));
             if results.len() == k as usize {
+                // should already be sorted but just in case the heuristic
+                // is not admissible.
+                // TODO: emitt warning in that case.
+                results.sort_by_key(|r| OrderedF64(r.1));
                 break;
             }
             continue;
@@ -206,19 +210,48 @@ impl Ord for OrderedF64 {
     }
 }
 
-// h[v] = min cost of any path from node v to the sink (len).
+// h[v] = cost lower bound of any path from node v to the sink (len).
 // DAG with start < end, so process nodes in decreasing order.
 fn future_cost<F>(lattice: &WordLattice, cost_fn: F) -> Vec<f64>
 where
     F: Fn(Surface, Surface, i32) -> f64,
 {
     let len = lattice.len;
+
+    // Precompute incoming edges: for each position, which surfaces can reach it
+    let mut incoming: Vec<Vec<(usize, Surface, i32)>> = vec![vec![]; len + 1];
+    for u in 0..len {
+        for e in &lattice.edges[u] {
+            incoming[e.end as usize].push((u, e.surface, e.boost));
+        }
+    }
+
     let mut h = vec![f64::INFINITY; len + 1];
     h[len] = 0.0;
+
     for v in (0..len).rev() {
         for e in &lattice.edges[v] {
-            let cost = cost_fn(Surface::None, e.surface, e.boost);
-            let c = cost + h[e.end as usize];
+            let curr = e.surface;
+            let boost = e.boost;
+
+            // Minimum cost to generate `curr` at position v,
+            // considering all possible predecessors
+            let min_step = if v == 0 {
+                // Start of input buffer: unigram only
+                cost_fn(Surface::None, curr, boost)
+            } else {
+                // Min over all predecessors
+                let mut best = f64::INFINITY;
+                for &(_, prev_surf, _) in &incoming[v] {
+                    let c = cost_fn(prev_surf, curr, boost);
+                    if c < best {
+                        best = c;
+                    }
+                }
+                best
+            };
+
+            let c = min_step + h[e.end as usize];
             if c < h[v] {
                 h[v] = c;
             }

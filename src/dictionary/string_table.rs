@@ -127,7 +127,8 @@ impl StringTable {
     /// Creates an inverse map from strings to indexes
     pub fn to_map(&self) -> BTreeMap<Cow<'_, str>, u32> {
         let mut map = BTreeMap::new();
-        for i in 0..self.inner.offset.len() {
+        // WordId(0) is <unk/>
+        for i in 1..self.inner.offset.len() {
             let i = i as u32;
             if let Some(string) = self.get(WordId(i)) {
                 map.insert(string, i);
