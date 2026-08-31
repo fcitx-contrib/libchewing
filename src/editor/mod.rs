@@ -195,12 +195,15 @@ impl Editor {
             let static_dict_path = sp
                 .find_file("static_dict.bin")
                 .ok_or("Failed to find static_dict.bin file")?;
+            let rare_dict_path = sp
+                .find_file("rare_dict.bin")
+                .ok_or("Failed to find rare_dict.bin file")?;
             let static_words_path = sp
                 .find_file("static_words.txt")
                 .ok_or("Failed to find static_words.txt file")?;
 
-            let static_dict =
-                StaticDict::from_reader(BufReader::new(File::open(&static_dict_path)?))?;
+            let static_dict = StaticDict::open(&static_dict_path)?;
+            let rare_dict = StaticDict::open(&rare_dict_path)?;
             let static_words = StringTable::open(&static_words_path)?;
 
             if let Some(up) = sp.user_datadir() {
@@ -267,6 +270,7 @@ impl Editor {
 
             let word_lattice_builder = WordLatticeBuilder {
                 static_dict: static_dict.clone(),
+                rare_dict: rare_dict.clone(),
                 history_dict: history_dict.clone(),
                 user_dict: user_dict.clone(),
             };

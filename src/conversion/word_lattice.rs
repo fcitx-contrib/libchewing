@@ -14,6 +14,7 @@ use crate::{
 #[derive(Debug)]
 pub struct WordLatticeBuilder {
     pub static_dict: StaticDict,
+    pub rare_dict: StaticDict,
     pub user_dict: UserDict,
     pub history_dict: HistoryDict,
 }
@@ -97,6 +98,8 @@ impl WordLatticeBuilder {
 
     fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Surface, i32)> {
         let mut words = vec![];
+        // TODO: load this as part of static_dict?
+        let rare_words = self.rare_dict.lookup(syllables, LookupStrategy::Standard);
         words.extend(
             self.user_dict
                 .lookup(syllables, LookupStrategy::Standard)
@@ -113,7 +116,13 @@ impl WordLatticeBuilder {
             self.static_dict
                 .lookup(syllables, LookupStrategy::Standard)
                 .iter()
-                .map(|&w| (Surface::Word(w), 0)),
+                .map(|&w| {
+                    if rare_words.contains(&w) {
+                        (Surface::Word(w), -100000)
+                    } else {
+                        (Surface::Word(w), 0)
+                    }
+                }),
         );
         words
     }

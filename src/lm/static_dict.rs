@@ -2,8 +2,10 @@
 
 use std::{
     collections::VecDeque,
-    io::{BufRead, Write},
+    fs::File,
+    io::{BufRead, BufReader, Write},
     num::NonZeroU32,
+    path::Path,
     sync::Arc,
 };
 
@@ -140,6 +142,13 @@ impl Iterator for WordsIter<'_> {
 }
 
 impl StaticDict {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<StaticDict, StaticDictError> {
+        expect_error("Failed to open static dictionary", || {
+            let reader = BufReader::new(File::open(path)?);
+            Ok(Self::from_reader(reader)?)
+        })
+    }
+
     pub fn from_reader<R: BufRead>(reader: R) -> Result<StaticDict, StaticDictError> {
         expect_error("Failed to read static dictionary", || {
             let mut decoder = BareDecoder::new(reader);
