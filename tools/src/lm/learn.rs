@@ -25,23 +25,14 @@ impl Default for PruningConfig {
     fn default() -> Self {
         Self {
             min_count: 10,
-            keep_fraction: Some(0.5),
+            keep_fraction: Some(0.3),
         }
     }
 }
 
-/// Compute the KL-divergence contribution of each bigram.
-///
-/// For bigram (w1, w2):
-///   D = count(w1,w2) * ln( P(w2|w1) / P(w2) )
-///
-/// Bigrams with small D are the most prunable, their
-/// probability is close to the unigram backoff, accounted for the
-/// frequency of the bigram.
-///
-/// STOLCKE, Andreas. Entropy-based pruning of backoff language models.
-/// arXiv preprint cs/0006025, 2000. https://doi.org/10.48550/arXiv.cs/0006025
-fn compute_kl_scores(
+// Compute the distance between bigram probability and back-off probability.
+// We can prune the entry if the back-off can mostly replace the bigram.
+fn compute_d_scores(
     unigrams: &BTreeMap<WordId, u64>,
     bigrams: &BTreeMap<(WordId, WordId), u64>,
     unigram_total: u64,
@@ -62,13 +53,13 @@ fn compute_kl_scores(
         // P(w2) = count(w2) / N
         let p_w2 = count_w2 as f64 / unigram_total as f64;
 
-        // KL divergence contribution
-        let kl = count as f64 * (p_w2_given_w1 / p_w2).ln();
+        // stupid-backoff divergence contribution
+        let d = (p_w2_given_w1 - 0.4 * p_w2).abs();
 
-        scores.push(((wid1, wid2), count, kl));
+        scores.push(((wid1, wid2), count, d));
     }
 
-    // Sort descending — largest KL first.
+    // Sort descending — largest first.
     scores.sort_unstable_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
     scores
@@ -154,18 +145,33 @@ pub(crate) fn learn_lm_with_config(
         }
     }
 
-    // Compute KL-divergence scores for all candidate bigrams, then prune
-    // the ones with the smallest contribution first until we reach the
-    // target keep_fraction.
-    let kl_scores = compute_kl_scores(&unigrams, &bigrams, unigram_total, config.min_count);
+    let d_scores = compute_d_scores(&unigrams, &bigrams, unigram_total, config.min_count);
 
-    // Determine the KL threshold: keep the top `keep_fraction` of bigrams.
+    for frac in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] {
+        eprintln!(
+            "D at {}% = {}",
+            frac * 100.0,
+            d_scores[(d_scores.len() as f64 * frac).ceil() as usize].2
+        );
+    }
+    for frac in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] {
+        eprintln!(
+            "SUM(D) at {}% = {}",
+            frac * 100.0,
+            d_scores[..(d_scores.len() as f64 * frac).ceil() as usize]
+                .iter()
+                .map(|v| v.2)
+                .sum::<f64>()
+        );
+    }
+
+    // Determine the threshold: keep the top `keep_fraction` of bigrams.
     let kl_threshold = if let Some(frac) = config.keep_fraction {
-        let keep_count = (kl_scores.len() as f64 * frac).ceil() as usize;
-        if keep_count < kl_scores.len() {
-            // The cutoff is the KL score at the boundary.
+        let keep_count = (d_scores.len() as f64 * frac).ceil() as usize;
+        if keep_count < d_scores.len() {
+            // The cutoff is the score at the boundary.
             // Everything below this score gets pruned.
-            Some(kl_scores[keep_count].2)
+            Some(d_scores[keep_count].2)
         } else {
             None
         }
@@ -174,13 +180,13 @@ pub(crate) fn learn_lm_with_config(
     };
 
     let keep_bigrams: FxHashMap<(WordId, WordId), u64> = if let Some(threshold) = kl_threshold {
-        kl_scores
+        d_scores
             .iter()
             .filter(|(_, _, kl)| *kl >= threshold)
             .map(|&(pair, count, _)| (pair, count))
             .collect()
     } else {
-        kl_scores
+        d_scores
             .iter()
             .map(|&(pair, count, _)| (pair, count))
             .collect()
