@@ -32,6 +32,9 @@ fn main() -> Result<()> {
             }
         },
         flags::ChewingCliCmd::Lm(sub) => match sub {
+            flags::Lm::Clean => {
+                lm::clean()?;
+            }
             flags::Lm::Compile(args) => {
                 lm::compile_lm(&args.lm_arpa, &args.words_txt, &args.output)?;
             }

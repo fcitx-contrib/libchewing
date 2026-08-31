@@ -119,7 +119,7 @@ impl StringTable {
     // FIXME: remove this or make it work with intern table
     /// Returns an iterator of the static string table
     pub fn iter(&self) -> impl Iterator<Item = (Cow<'_, str>, u32)> {
-        (0..self.inner.offset.len()).filter_map(|i| {
+        (1..self.inner.offset.len()).filter_map(|i| {
             let i = i as u32;
             self.get(WordId(i)).map(|s| (s, i))
         })
