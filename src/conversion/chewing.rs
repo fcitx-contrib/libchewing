@@ -12,7 +12,7 @@ use crate::{
 pub struct ChewingEngine {
     pub word_lattice_builder: WordLatticeBuilder,
     pub decoder: Decoder,
-    pub static_words: StringTable,
+    pub string_table: StringTable,
     pub lookup_strategy: LookupStrategy,
 }
 
@@ -36,7 +36,7 @@ impl ChewingEngine {
                         is_phrase: matches!(edge.surface, Surface::Word(_)),
                         text: match edge.surface {
                             Surface::Word(wid) => self
-                                .static_words
+                                .string_table
                                 .get(wid)
                                 .unwrap_or("".into())
                                 .to_string()

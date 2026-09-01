@@ -3,7 +3,7 @@ use std::sync::Arc;
 use smol_str::SmolStr;
 
 use crate::{
-    dictionary::{LookupStrategy, StringTable},
+    dictionary::LookupStrategy,
     lm::StaticDict,
     model::WordId,
     user::{HistoryDict, UserDict},
@@ -18,7 +18,6 @@ pub struct CompositeDict {
 #[derive(Debug)]
 struct CompositeDictInner {
     static_dict: StaticDict,
-    static_words: StringTable,
     history_dict: HistoryDict,
     user_dict: UserDict,
 }
@@ -26,14 +25,12 @@ struct CompositeDictInner {
 impl CompositeDict {
     pub fn new(
         static_dict: StaticDict,
-        static_words: StringTable,
         history_dict: HistoryDict,
         user_dict: UserDict,
     ) -> CompositeDict {
         CompositeDict {
             inner: Arc::new(CompositeDictInner {
                 static_dict,
-                static_words,
                 history_dict,
                 user_dict,
             }),
@@ -52,9 +49,5 @@ impl CompositeDict {
         res.extend(self.inner.history_dict.lookup(syllables, strategy));
         res.extend(self.inner.user_dict.lookup(syllables, strategy));
         res
-    }
-
-    pub fn get_text(&self, wid: WordId) -> Option<SmolStr> {
-        self.inner.static_words.get(wid).map(|s| s.into())
     }
 }

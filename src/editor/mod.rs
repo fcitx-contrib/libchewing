@@ -166,6 +166,7 @@ pub(crate) struct SharedState {
     com: CompositionEditor,
     syl: Box<dyn SyllableEditor>,
     conv: Box<dyn ConversionEngine>,
+    string_table: StringTable,
     dict: CompositeDict,
     user_dict: UserDict,
     abbr: AbbrevTable,
@@ -207,7 +208,7 @@ impl Editor {
 
             let static_dict = StaticDict::open(&static_dict_path)?;
             let rare_dict = StaticDict::open(&rare_dict_path)?;
-            let static_words = StringTable::open(&static_words_path)?;
+            let string_table = StringTable::open(&static_words_path)?;
 
             let lm = StaticLm::from_reader(
                 BufReader::new(File::open(&static_lm_path)?),
@@ -232,14 +233,14 @@ impl Editor {
                 user_dict_path = sp.find_user_file("user_dict.csv");
             }
             let user_dict = match user_dict_path {
-                Some(path) => match UserDict::open(&path, static_words.clone()) {
+                Some(path) => match UserDict::open(&path, string_table.clone()) {
                     Ok(dict) => dict,
                     Err(err) => {
                         error!("{}", err.report());
-                        UserDict::new(static_words.clone())
+                        UserDict::new(string_table.clone())
                     }
                 },
-                None => UserDict::new(static_words.clone()),
+                None => UserDict::new(string_table.clone()),
             };
 
             let mut history_dict_path = sp.find_user_file("history_dict.bin");
@@ -253,14 +254,14 @@ impl Editor {
                 history_dict_path = sp.find_user_file("history_dict.bin");
             }
             let history_dict = match history_dict_path {
-                Some(path) => match HistoryDict::open(&path, static_words.clone()) {
+                Some(path) => match HistoryDict::open(&path, string_table.clone()) {
                     Ok(dict) => dict,
                     Err(err) => {
                         error!("{}", err.report());
-                        HistoryDict::new(static_words.clone())
+                        HistoryDict::new(string_table.clone())
                     }
                 },
-                None => HistoryDict::new(static_words.clone()),
+                None => HistoryDict::new(string_table.clone()),
             };
 
             let word_lattice_builder = WordLatticeBuilder {
@@ -275,18 +276,18 @@ impl Editor {
             let conversion_engine = Box::new(ChewingEngine {
                 word_lattice_builder,
                 decoder,
-                static_words: static_words.clone(),
+                string_table: string_table.clone(),
                 lookup_strategy: LookupStrategy::Standard,
             });
 
-            let composite_dict =
-                CompositeDict::new(static_dict, static_words, history_dict, user_dict.clone());
+            let composite_dict = CompositeDict::new(static_dict, history_dict, user_dict.clone());
 
             let abbrev = AbbrevTable::new();
             let sym_sel = SymbolSelector::new(b"".as_slice())?;
 
             let editor = Editor::new(
                 conversion_engine,
+                string_table,
                 composite_dict,
                 user_dict,
                 abbrev,
@@ -298,6 +299,7 @@ impl Editor {
 
     pub fn new(
         conv: Box<dyn ConversionEngine>,
+        string_table: StringTable,
         dict: CompositeDict,
         user_dict: UserDict,
         abbr: AbbrevTable,
@@ -308,6 +310,7 @@ impl Editor {
                 com: CompositionEditor::default(),
                 syl: Box::new(Standard::new()),
                 conv,
+                string_table,
                 dict,
                 user_dict,
                 abbr,
@@ -1446,7 +1449,7 @@ impl Selecting {
             Selector::Phrase(sel) => sel
                 .candidates(editor)
                 .into_iter()
-                .filter_map(|wid| editor.dict.get_text(wid))
+                .filter_map(|wid| editor.string_table.get(wid))
                 .map(|s| s.into())
                 .collect(),
             Selector::Symbol(sel) => sel.menu(),

@@ -1,13 +1,13 @@
 use crate::{
     conversion::{Composition, ConversionEngine, Interval, Outcome},
-    dictionary::{Dictionary, LookupStrategy, StringTable},
+    dictionary::{LookupStrategy, StringTable},
     lm::StaticDict,
 };
 
 /// Simple engine does not perform any intelligent conversion.
 #[derive(Debug)]
 pub struct SimpleEngine {
-    static_words: StringTable,
+    string_table: StringTable,
     static_dict: StaticDict,
 }
 
@@ -38,7 +38,7 @@ impl SimpleEngine {
                     .cloned();
                 let phrase_str = phrase.map_or_else(
                     || sym.to_syllable().unwrap().to_string(),
-                    |wid| self.static_words.get(wid).unwrap_or("".into()).to_string(),
+                    |wid| self.string_table.get(wid).unwrap_or("".into()).to_string(),
                 );
                 intervals.push(Interval {
                     start: i,
