@@ -1,6 +1,5 @@
 pub(crate) mod dict;
 pub(crate) mod history_dict;
-pub(crate) mod indexed_dict;
 pub(crate) mod migrate;
 
 pub use self::dict::{UserDict, UserDictError};

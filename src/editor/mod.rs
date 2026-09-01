@@ -232,14 +232,14 @@ impl Editor {
                 user_dict_path = sp.find_user_file("user_dict.csv");
             }
             let user_dict = match user_dict_path {
-                Some(path) => match UserDict::open(&path) {
+                Some(path) => match UserDict::open(&path, static_words.clone()) {
                     Ok(dict) => dict,
                     Err(err) => {
                         error!("{}", err.report());
-                        UserDict::new()
+                        UserDict::new(static_words.clone())
                     }
                 },
-                None => UserDict::new(),
+                None => UserDict::new(static_words.clone()),
             };
 
             let mut history_dict_path = sp.find_user_file("history_dict.bin");

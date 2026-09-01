@@ -55,11 +55,6 @@ impl CompositeDict {
     }
 
     pub fn get_text(&self, wid: WordId) -> Option<SmolStr> {
-        self.inner
-            .static_words
-            .get(wid)
-            .map(|s| s.into())
-            .or_else(|| self.inner.history_dict.get_text(wid))
-            .or_else(|| self.inner.user_dict.get_text(wid))
+        self.inner.static_words.get(wid).map(|s| s.into())
     }
 }

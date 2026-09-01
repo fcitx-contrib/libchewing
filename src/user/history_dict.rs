@@ -174,14 +174,6 @@ impl HistoryDict {
             Ok(())
         })
     }
-    /// Gets the text of a WordId
-    pub fn get_text(&self, wid: WordId) -> Option<SmolStr> {
-        let lock = self
-            .inner
-            .read()
-            .expect("Unable to acquire UserVocab reader lock");
-        lock.string_table.get(wid).map(|v| v.to_smolstr())
-    }
     pub(crate) fn lookup(
         &self,
         syllables: &[Syllable],

@@ -1,6 +1,9 @@
 //! User editable dictionary source
 
 use std::{
+    borrow::Cow,
+    collections::BTreeMap,
+    fmt::Display,
     fs::File,
     io::{BufRead, BufReader, Write},
     path::Path,
@@ -9,13 +12,11 @@ use std::{
 };
 
 use scoped_error::{expect_error, impl_context_error};
-use smol_str::{SmolStr, ToSmolStr};
 use tinyvec::TinyVec;
 
 use crate::{
-    dictionary::LookupStrategy,
+    dictionary::{LookupStrategy, StringTable},
     model::WordId,
-    user::indexed_dict::IndexedDict,
     zhuyin::{Syllable, SyllableVec, parse_syllable_vec},
 };
 
@@ -25,7 +26,19 @@ use crate::{
 /// shared between components.
 #[derive(Debug, Clone)]
 pub struct UserDict {
-    inner: Arc<RwLock<IndexedDict>>,
+    inner: Arc<RwLock<UserDictInner>>,
+}
+
+#[derive(Debug)]
+struct UserDictInner {
+    string_table: StringTable,
+    records: BTreeMap<SyllableVec, Vec<UserDictEntry>>,
+}
+
+#[derive(Debug)]
+struct UserDictEntry {
+    wid: WordId,
+    boost: i32,
 }
 
 impl UserDict {
@@ -33,9 +46,12 @@ impl UserDict {
     pub const MAX: i32 = 9_999_999;
 
     /// Returns an empty UserDict
-    pub fn new() -> UserDict {
+    pub fn new(string_table: StringTable) -> UserDict {
         UserDict {
-            inner: Arc::new(RwLock::new(IndexedDict::new(WordId::MIN_USER))),
+            inner: Arc::new(RwLock::new(UserDictInner {
+                string_table,
+                records: BTreeMap::new(),
+            })),
         }
     }
     /// Initialize an empty UserDict on the filesystem.
@@ -43,24 +59,31 @@ impl UserDict {
     /// If a file already exists then it will be truncated.
     pub fn init<P: AsRef<Path>>(path: P) -> Result<(), UserDictError> {
         expect_error("Failed to initialize UserDict", || {
-            let dict = Self::new();
+            let dict = Self::new(StringTable::new());
             let file = File::create(path)?;
             dict.to_writer(file)?;
             Ok(())
         })
     }
     /// Open an UserDict file and read from it.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<UserDict, UserDictError> {
+    pub fn open<P: AsRef<Path>>(
+        path: P,
+        string_table: StringTable,
+    ) -> Result<UserDict, UserDictError> {
         expect_error("Failed to open user dictionary", || {
             let file = File::open(path)?;
             let reader = BufReader::new(file);
-            Ok(UserDict::from_reader(reader)?)
+            Ok(UserDict::from_reader(reader, string_table)?)
         })
     }
     /// Reads user dictionary from an IO stream
-    pub fn from_reader<R: BufRead>(readr: R) -> Result<UserDict, UserDictError> {
+    pub fn from_reader<R: BufRead>(
+        readr: R,
+        string_table: StringTable,
+    ) -> Result<UserDict, UserDictError> {
         expect_error("Failed to parse user dictionary", || {
-            let mut idict = IndexedDict::new(WordId::MIN_USER);
+            let mut records = BTreeMap::new();
+
             for (i, io) in readr.lines().enumerate() {
                 let line = io?;
                 let mut parts = line.split(',');
@@ -75,10 +98,17 @@ impl UserDict {
                     .map(|b| i32::from_str(b).unwrap_or(0).clamp(Self::MIN, Self::MAX))
                     .unwrap_or(0);
                 let syllables: SyllableVec = parse_syllable_vec(bopomofo.trim())?;
-                idict.insert(syllables, word.to_smolstr(), boost);
+
+                let wid = string_table.intern(word);
+
+                let word_entries = records.entry(syllables).or_insert(vec![]);
+                word_entries.push(UserDictEntry { wid, boost });
             }
             Ok(UserDict {
-                inner: Arc::new(RwLock::new(idict)),
+                inner: Arc::new(RwLock::new(UserDictInner {
+                    string_table,
+                    records,
+                })),
             })
         })
     }
@@ -89,39 +119,56 @@ impl UserDict {
                 .inner
                 .read()
                 .expect("Unable to acquire UserDict reader lock");
-            for (syllables, word) in lock.iter() {
-                writeln!(writer, "{},{}", word, syllables)?;
+            for (syllables, entries) in lock.records.iter() {
+                for entry in entries {
+                    let word = lock
+                        .string_table
+                        .get(entry.wid)
+                        .expect("Should have this word");
+                    writeln!(
+                        writer,
+                        "{},{},{}",
+                        word,
+                        display_syllables(syllables),
+                        entry.boost
+                    )?;
+                }
             }
             Ok(())
         })
     }
-    /// Gets the text of a WordId
-    pub fn get_text(&self, wid: WordId) -> Option<SmolStr> {
+    pub fn get_text(&self, wid: WordId) -> Option<Cow<'_, str>> {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire UserDict reader lock");
-        lock.get_text(wid)
-    }
-    /// Gets the WordId from (syllables, word)
-    pub fn get_wid(&self, syllables: &[Syllable], word: &str) -> Option<(WordId, i32)> {
-        let lock = self
-            .inner
-            .read()
-            .expect("Unable to acquire UserDict reader lock");
-        lock.get_wid(syllables, word)
+        lock.string_table
+            .get(wid)
+            .map(|s| Cow::Owned(s.into_owned()))
     }
     pub fn lookup(
         &self,
         syllables: &[Syllable],
-        strategy: LookupStrategy,
+        _strategy: LookupStrategy,
     ) -> TinyVec<[(WordId, i32); 3]> {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire UserDict reader lock");
-        lock.lookup(syllables, strategy)
+        // TODO: support prefix lookup
+        lock.records
+            .get(syllables)
+            .map(|entries| entries.iter().map(|e| (e.wid, e.boost)).collect())
+            .unwrap_or_default()
     }
+}
+
+fn display_syllables(syllables: &[Syllable]) -> impl Display {
+    syllables
+        .iter()
+        .map(|syl| syl.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl_context_error!(pub UserDictError);
