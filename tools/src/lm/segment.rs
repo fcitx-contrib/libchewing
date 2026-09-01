@@ -12,7 +12,6 @@ use chewing::{
     dictionary::StringTable,
     lm::{LoadMode, StaticLm},
     model::{Surface, WordId},
-    user::HistoryFreq,
 };
 use fxhash::FxHashMap;
 
@@ -23,10 +22,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
 
     let stdin = stdin().lock();
 
-    let decoder = Decoder {
-        history_freq: HistoryFreq::new(),
-        lm,
-    };
+    let decoder = Decoder { lm };
 
     let n_threads = thread::available_parallelism()?.get();
     let (work_send, work_recv) = crossbeam_channel::bounded::<String>(n_threads * 2);

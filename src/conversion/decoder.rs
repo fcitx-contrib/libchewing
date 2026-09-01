@@ -10,12 +10,10 @@ use crate::{
     conversion::word_lattice::{Edge, WordLattice},
     lm::static_lm::StaticLm,
     model::{Surface, WordId},
-    user::HistoryFreq,
 };
 
 #[derive(Debug)]
 pub struct Decoder {
-    pub history_freq: HistoryFreq,
     pub lm: StaticLm,
 }
 

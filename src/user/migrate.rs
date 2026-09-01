@@ -12,8 +12,7 @@ use log::info;
 use scoped_error::{expect_error, impl_context_error};
 
 use crate::{
-    dictionary::{Dictionary, LookupStrategy, StringTable, Trie},
-    lm::StaticDict,
+    dictionary::{Dictionary, Trie},
     zhuyin::Syllable,
 };
 
@@ -24,11 +23,7 @@ pub fn should_migrate_v3(base_path: &Path) -> bool {
     chewing_dat_path.exists() && !v4_path.exists()
 }
 
-pub fn migrate_v3_to_v4(
-    base_path: &Path,
-    dict: &StaticDict,
-    words: &StringTable,
-) -> Result<(), MigrateV4Error> {
+pub fn migrate_v3_to_v4(base_path: &Path) -> Result<(), MigrateV4Error> {
     expect_error("Unable to migrate v3 user data to v4 format", || {
         let v4_path = base_path.join("v4");
         fs::create_dir_all(&v4_path)?;
@@ -40,9 +35,9 @@ pub fn migrate_v3_to_v4(
         let deleted_dat = Trie::open(&deleted_dat_path)?;
 
         let user_dict_path = v4_path.join("user_dict.csv");
-        let user_freq_path = v4_path.join("user_freq.csv");
 
         info!("Migrate {} to v4 format", chewing_dat_path.display());
+
         let mut file_options = File::options();
         file_options.create(true).write(true);
 
@@ -52,34 +47,28 @@ pub fn migrate_v3_to_v4(
         }
 
         let mut user_dict = file_options.open(&user_dict_path)?;
-        let mut user_freq = file_options.open(&user_freq_path)?;
 
         for (syllables, phrase) in chewing_dat.entries() {
-            writeln!(user_freq, "{},{}", phrase, phrase.freq())?;
-
-            // Skip words in static words list
-            if dict
-                .lookup(&syllables, LookupStrategy::Standard)
-                .iter()
-                .any(|wid| {
-                    if let Some(word_str) = words.get(*wid) {
-                        return phrase.as_str() == word_str;
-                    }
-                    false
-                })
-            {
-                continue;
-            }
-
-            writeln!(user_dict, "{},{}", phrase, display_syllables(&syllables))?;
+            writeln!(
+                user_dict,
+                "{},{},{}",
+                phrase,
+                display_syllables(&syllables),
+                phrase.freq()
+            )?;
         }
 
-        for (_, phrase) in deleted_dat.entries() {
-            writeln!(user_freq, "{},-{}", phrase, phrase.freq())?;
+        for (syllables, phrase) in deleted_dat.entries() {
+            writeln!(
+                user_dict,
+                "{},{},-{}",
+                phrase,
+                display_syllables(&syllables),
+                phrase.freq()
+            )?;
         }
 
         user_dict.sync_all()?;
-        user_freq.sync_all()?;
 
         Ok(())
     })

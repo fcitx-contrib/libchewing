@@ -30,7 +30,7 @@ use crate::{
     input::{KeyState, KeyboardEvent, keysym::*},
     lm::{LoadMode, StaticDict, StaticLm},
     path::SearchPath,
-    user::{HistoryDict, HistoryFreq, UserDict, migrate_v3_to_v4, should_migrate_v3},
+    user::{HistoryDict, UserDict, migrate_v3_to_v4, should_migrate_v3},
     zhuyin::Syllable,
 };
 
@@ -201,14 +201,23 @@ impl Editor {
             let static_words_path = sp
                 .find_file("static_words.txt")
                 .ok_or("Failed to find static_words.txt file")?;
+            let static_lm_path = sp
+                .find_file("static_lm.bin")
+                .ok_or("Failed to find static_lm.bin file")?;
 
             let static_dict = StaticDict::open(&static_dict_path)?;
             let rare_dict = StaticDict::open(&rare_dict_path)?;
             let static_words = StringTable::open(&static_words_path)?;
 
+            let lm = StaticLm::from_reader(
+                BufReader::new(File::open(&static_lm_path)?),
+                // Lazy mode is too slow for now
+                LoadMode::Eager,
+            )?;
+
             if let Some(up) = sp.user_datadir() {
                 if should_migrate_v3(up) {
-                    migrate_v3_to_v4(up, &static_dict, &static_words)?;
+                    migrate_v3_to_v4(up)?;
                 }
             }
 
@@ -244,29 +253,15 @@ impl Editor {
                 history_dict_path = sp.find_user_file("history_dict.bin");
             }
             let history_dict = match history_dict_path {
-                Some(path) => match HistoryDict::open(&path) {
+                Some(path) => match HistoryDict::open(&path, static_words.clone()) {
                     Ok(dict) => dict,
                     Err(err) => {
                         error!("{}", err.report());
-                        HistoryDict::new()
+                        HistoryDict::new(static_words.clone())
                     }
                 },
-                None => HistoryDict::new(),
+                None => HistoryDict::new(static_words.clone()),
             };
-
-            // let history_freq_path = sp
-            //     .find_user_file("history_freq.bin")
-            //     .ok_or("Failed to find history_freq.bin")?;
-            let history_freq = HistoryFreq::new();
-
-            let static_lm_path = sp
-                .find_file("static_lm.bin")
-                .ok_or("Failed to find static_lm.bin file")?;
-            let lm = StaticLm::from_reader(
-                BufReader::new(File::open(&static_lm_path)?),
-                // Lazy mode is too slow for now
-                LoadMode::Eager,
-            )?;
 
             let word_lattice_builder = WordLatticeBuilder {
                 static_dict: static_dict.clone(),
@@ -275,7 +270,7 @@ impl Editor {
                 user_dict: user_dict.clone(),
             };
 
-            let decoder = Decoder { history_freq, lm };
+            let decoder = Decoder { lm };
 
             let conversion_engine = Box::new(ChewingEngine {
                 word_lattice_builder,

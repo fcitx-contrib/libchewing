@@ -67,38 +67,6 @@ type StaticLMIndexV1 {
     v: list<u8>[num_values]
 }
 
-# history_freq.bin
-# ============================================
-
-type HistoryFreqFileMagic struct {
-    magic: data[4]                 # CHHF
-    file: HistoryFreqFile
-}
-
-type HistoryFreqFile union {HistoryFreqFileV1}
-
-type HistoryFreqFileV1 struct {
-    header: HistoryFreqHeaderV1,
-    payload: HistoryFreqListV1,
-}
-
-type HistoryFreqHeader struct {
-    flags: u32
-    half_life: u32
-    generation: u64
-    count: u32
-}
-
-type HistoryFreqList struct {
-    history: list<HistoryFreqEntry>[count]
-}
-
-type HistoryFreqEntry struct {
-    word: str
-    c_i: u32
-    b_i: u64
-}
-
 # history_dict.bin
 # ============================================
 
@@ -116,6 +84,8 @@ type HistoryDictFileV1 struct {
 
 type HistoryDictHeader struct {
     flags: u32
+    half_life: u32
+    generation: u64
     count: u32
 }
 
@@ -126,4 +96,6 @@ type HistoryDictList struct {
 type HistoryDictEntry struct {
     syllables: list<u16>
     word: str
+    seen: u32
+    epoch: u64
 }

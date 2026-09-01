@@ -3,63 +3,90 @@
 //! The auto user vocabulary list stores new words learned from user interactions
 
 use std::{
+    collections::BTreeMap,
     fs::File,
     io::{BufRead, BufReader, Write},
     path::Path,
     sync::{Arc, RwLock},
 };
 
-use log::warn;
 use scoped_error::{bail, expect_error, impl_context_error};
 use smol_str::{SmolStr, ToSmolStr};
 use tinyvec::{TinyVec, tiny_vec};
 
-use super::IndexedDict;
 use crate::{
     bare::{BareDecoder, BareEncoder},
-    dictionary::LookupStrategy,
+    dictionary::{LookupStrategy, StringTable},
     model::WordId,
-    zhuyin::Syllable,
+    zhuyin::{Syllable, SyllableVec},
 };
 
 /// Automatic learned user vocabulary list
 #[derive(Debug, Clone)]
 pub struct HistoryDict {
-    inner: Arc<RwLock<IndexedDict>>,
+    inner: Arc<RwLock<HistoryDictInner>>,
+}
+
+#[derive(Debug)]
+struct HistoryDictInner {
+    string_table: StringTable,
+    half_life: u32,
+    generation: u64,
+    count: u32,
+    records: BTreeMap<SyllableVec, Vec<HistoryDictEntry>>,
+}
+
+#[derive(Debug)]
+struct HistoryDictEntry {
+    wid: WordId,
+    seen: u32,
+    epoch: u64,
 }
 
 impl HistoryDict {
+    pub const HALF_LIFE: u32 = 50_000;
+
     /// Returns an empty HistoryDict
-    pub fn new() -> HistoryDict {
+    pub fn new(string_table: StringTable) -> HistoryDict {
         HistoryDict {
-            inner: Arc::new(RwLock::new(IndexedDict::new(WordId::MIN_HISTORY))),
+            inner: Arc::new(RwLock::new(HistoryDictInner {
+                string_table,
+                half_life: Self::HALF_LIFE,
+                generation: 0,
+                count: 0,
+                records: BTreeMap::new(),
+            })),
         }
     }
     /// Initialize an empty HistoryDict on the filesystem.
     ///
     /// If a file already exists then it will be truncated.
     pub fn init<P: AsRef<Path>>(path: P) -> Result<(), HistoryDictError> {
-        expect_error("Failed to initialize UserDict", || {
-            let dict = Self::new();
+        expect_error("Failed to initialize HistoryDict", || {
+            let dict = Self::new(StringTable::new());
             let file = File::create(path)?;
             dict.to_writer(file)?;
             Ok(())
         })
     }
     /// Open an HistoryDict file and read from it.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<HistoryDict, HistoryDictError> {
-        expect_error("Failed to open user dictionary", || {
+    pub fn open<P: AsRef<Path>>(
+        path: P,
+        string_table: StringTable,
+    ) -> Result<HistoryDict, HistoryDictError> {
+        expect_error("Failed to open user history dictionary", || {
             let file = File::open(path)?;
             let reader = BufReader::new(file);
-            Ok(HistoryDict::from_reader(reader)?)
+            Ok(HistoryDict::from_reader(reader, string_table)?)
         })
     }
     /// Reads history dict from the IO stream
-    pub fn from_reader<R: BufRead>(reader: R) -> Result<HistoryDict, HistoryDictError> {
+    pub fn from_reader<R: BufRead>(
+        reader: R,
+        string_table: StringTable,
+    ) -> Result<HistoryDict, HistoryDictError> {
         expect_error("Failed to parse history dict", || {
             let mut decoder = BareDecoder::new(reader);
-
-            let mut idict = IndexedDict::new(WordId::MIN_HISTORY);
 
             // Read file magic
             let magic = decoder.read_data_exact(4)?;
@@ -76,10 +103,13 @@ impl HistoryDict {
             if flags != 0 {
                 bail!("Unknown header flags");
             }
-            let records_len = decoder.read_u32()? as usize;
+            let half_life = decoder.read_u32()?;
+            let generation = decoder.read_u64()?;
+            let count = decoder.read_u32()?;
+            let mut records = BTreeMap::new();
 
             // Read record frames
-            for _ in 0..records_len {
+            for _ in 0..count {
                 let len = decoder.read_uint()? as usize;
                 let mut syllables = tiny_vec!([Syllable; 5]);
                 for _ in 0..len {
@@ -88,11 +118,23 @@ impl HistoryDict {
                 }
                 let raw_word = decoder.read_data()?;
                 let word = str::from_utf8(&raw_word)?;
+                let seen = decoder.read_u32()?;
+                let epoch = decoder.read_u64()?;
 
-                idict.insert(syllables, word.to_smolstr(), 0);
+                let wid = string_table.intern(word);
+
+                let word_entries = records.entry(syllables).or_insert(vec![]);
+                word_entries.push(HistoryDictEntry { wid, seen, epoch });
             }
+
             Ok(HistoryDict {
-                inner: Arc::new(RwLock::new(idict)),
+                inner: Arc::new(RwLock::new(HistoryDictInner {
+                    string_table,
+                    half_life,
+                    generation,
+                    count,
+                    records,
+                })),
             })
         })
     }
@@ -110,18 +152,24 @@ impl HistoryDict {
             encoder.write_uint(0)?;
             // Write HistoryDictHeader flags
             encoder.write_u32(0)?;
-            let len = lock.len();
-            if len > u32::MAX as usize {
-                warn!("writing more than 2^32 records");
-            }
-            // Write the records length
-            encoder.write_u32(lock.len() as u32)?;
-            for (syllables, word) in lock.iter() {
-                encoder.write_uint(syllables.len() as u64)?;
-                for syl in syllables {
-                    encoder.write_u16(syl.to_u16())?;
+            encoder.write_u32(lock.half_life)?;
+            encoder.write_u64(lock.generation)?;
+            encoder.write_u32(lock.count)?;
+
+            for (syllables, entries) in lock.records.iter() {
+                for entry in entries {
+                    encoder.write_uint(syllables.len() as u64)?;
+                    for syl in syllables {
+                        encoder.write_u16(syl.to_u16())?;
+                    }
+                    let word = lock
+                        .string_table
+                        .get(entry.wid)
+                        .expect("Should have this word");
+                    encoder.write_data(word.as_bytes())?;
+                    encoder.write_u32(entry.seen)?;
+                    encoder.write_u64(entry.epoch)?;
                 }
-                encoder.write_data(word.as_bytes())?;
             }
             Ok(())
         })
@@ -132,27 +180,41 @@ impl HistoryDict {
             .inner
             .read()
             .expect("Unable to acquire UserVocab reader lock");
-        lock.get_text(wid)
-    }
-    /// Gets the WordId from (syllables, word)
-    pub fn get_wid(&self, syllables: &[Syllable], word: &str) -> Option<(WordId, i32)> {
-        let lock = self
-            .inner
-            .read()
-            .expect("Unable to acquire UserVocab reader lock");
-        lock.get_wid(syllables, word)
+        lock.string_table.get(wid).map(|v| v.to_smolstr())
     }
     pub(crate) fn lookup(
         &self,
         syllables: &[Syllable],
-        strategy: LookupStrategy,
+        _strategy: LookupStrategy,
     ) -> TinyVec<[(WordId, i32); 3]> {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire UserDict reader lock");
-        lock.lookup(syllables, strategy)
+        // TODO: support prefix lookup
+        lock.records
+            .get(syllables)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|e| {
+                        let count = true_count(lock.half_life, lock.generation, e.seen, e.epoch);
+                        (e.wid, count as i32)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
+}
+
+// Linear approximation (first-order)
+fn true_count(h: u32, g: u64, c_i: u32, b_i: u64) -> u32 {
+    let h = h as u64;
+    let elapsed = g - b_i;
+    let num_halvings = elapsed / h;
+    let reminder = elapsed % h;
+    let base = c_i as u64 >> num_halvings;
+    (base - (base * reminder) / (2 * h)) as u32
 }
 
 impl_context_error!(pub HistoryDictError);
