@@ -69,8 +69,8 @@ impl StringTable {
         let mut offset = vec![];
         let mut map = BTreeMap::new();
         for line in buffer.lines() {
-            offset.push((line.as_ptr() as usize - bob) as u32);
             map.insert(line.to_owned(), offset.len() as u32);
+            offset.push((line.as_ptr() as usize - bob) as u32);
         }
         let offset = offset.into_boxed_slice();
         StringTable {

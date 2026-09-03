@@ -143,6 +143,55 @@ impl UserDict {
             .expect("Unable to acquire UserDict reader lock");
         lock.string_table.get_text(wid)
     }
+    pub fn insert(&self, syllables: &[Syllable], word: &str) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire UserDict writer lock");
+        let wid = lock.string_table.intern(word);
+        log::debug!("intern {} => {}", word, wid);
+        let word_entries = lock.records.entry(syllables.into()).or_default();
+        if word_entries.iter().find(|e| e.wid == wid).is_none() {
+            word_entries.push(UserDictEntry { wid, boost: 0 });
+        }
+    }
+    pub fn boost(&self, syllables: &[Syllable], word: &str) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire UserDict writer lock");
+        let wid = lock.string_table.intern(word);
+        let word_entries = lock.records.entry(syllables.into()).or_default();
+        if let Some(pos) = word_entries.iter().position(|e| e.wid == wid) {
+            word_entries[pos].boost = (word_entries[pos].boost + 100).clamp(Self::MIN, Self::MAX);
+        } else {
+            word_entries.push(UserDictEntry { wid, boost: 100 });
+        }
+    }
+    pub fn deboost(&self, syllables: &[Syllable], word: &str) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire UserDict writer lock");
+        let wid = lock.string_table.intern(word);
+        let word_entries = lock.records.entry(syllables.into()).or_default();
+        if let Some(pos) = word_entries.iter().position(|e| e.wid == wid) {
+            word_entries[pos].boost = (word_entries[pos].boost - 100).clamp(Self::MIN, Self::MAX);
+        } else {
+            word_entries.push(UserDictEntry { wid, boost: -100 });
+        }
+    }
+    pub fn remove(&self, syllables: &[Syllable], word: &str) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire UserDict writer lock");
+        let wid = lock.string_table.intern(word);
+        let word_entries = lock.records.entry(syllables.into()).or_default();
+        if let Some(pos) = word_entries.iter().position(|e| e.wid == wid) {
+            word_entries.remove(pos);
+        }
+    }
     pub fn lookup(
         &self,
         syllables: &[Syllable],

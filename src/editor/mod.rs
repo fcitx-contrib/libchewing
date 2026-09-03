@@ -169,6 +169,7 @@ pub(crate) struct SharedState {
     string_table: StringTable,
     dict: CompositeDict,
     user_dict: UserDict,
+    hist_dict: HistoryDict,
     abbr: AbbrevTable,
     sym_sel: SymbolSelector,
     options: EditorOptions,
@@ -257,7 +258,7 @@ impl Editor {
                 // try again
                 history_dict_path = sp.find_user_file("history_dict.bin");
             }
-            let history_dict = match history_dict_path {
+            let hist_dict = match history_dict_path {
                 Some(path) => match HistoryDict::open(&path, string_table.clone()) {
                     Ok(dict) => dict,
                     Err(err) => {
@@ -271,7 +272,7 @@ impl Editor {
             let word_lattice_builder = WordLatticeBuilder {
                 static_dict: static_dict.clone(),
                 rare_dict: rare_dict.clone(),
-                history_dict: history_dict.clone(),
+                history_dict: hist_dict.clone(),
                 user_dict: user_dict.clone(),
             };
 
@@ -284,7 +285,8 @@ impl Editor {
                 lookup_strategy: LookupStrategy::Standard,
             });
 
-            let composite_dict = CompositeDict::new(static_dict, history_dict, user_dict.clone());
+            let composite_dict =
+                CompositeDict::new(static_dict, hist_dict.clone(), user_dict.clone());
 
             let abbrev = AbbrevTable::new();
             let sym_sel = SymbolSelector::new(b"".as_slice())?;
@@ -294,6 +296,7 @@ impl Editor {
                 string_table,
                 composite_dict,
                 user_dict,
+                hist_dict,
                 abbrev,
                 sym_sel,
             );
@@ -306,6 +309,7 @@ impl Editor {
         string_table: StringTable,
         dict: CompositeDict,
         user_dict: UserDict,
+        hist_dict: HistoryDict,
         abbr: AbbrevTable,
         sym_sel: SymbolSelector,
     ) -> Editor {
@@ -317,6 +321,7 @@ impl Editor {
                 string_table,
                 dict,
                 user_dict,
+                hist_dict,
                 abbr,
                 sym_sel,
                 options: EditorOptions::default(),
@@ -710,7 +715,7 @@ impl SharedState {
             .take(end - start)
             .collect::<String>();
         if self
-            .user_dict
+            .dict
             .lookup(&syllables, LookupStrategy::Standard)
             .into_iter()
             .any(|(wid, _)| self.string_table.get_text(wid).is_some_and(|s| s == phrase))
@@ -739,32 +744,18 @@ impl SharedState {
             ))
             .or_raise(|| EditorError::new(EditorErrorKind::InvalidState));
         }
-        // let phrases = self.dict.lookup(syllables, LookupStrategy::Standard);
-        // if phrases.is_empty() {
-        //     self.dict
-        //         .add_phrase(syllables, (phrase, 10).into())
-        //         .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
-        //     return Ok(());
-        // }
-        // let phrase = phrases
-        //     .iter()
-        //     .find(|p| p.as_str() == phrase)
-        //     .cloned()
-        //     .unwrap_or((phrase, 10).into());
-        // // TODO: fine tune learning curve
-        // let max_freq = phrases.iter().map(|p| p.freq()).max().unwrap_or(1);
-        // let user_freq = self.estimate.estimate(&phrase, max_freq);
-        // let time = self.estimate.now();
-
-        // let _ = self.dict.update_phrase(syllables, phrase, user_freq, time);
+        let phrases = self.user_dict.lookup(syllables, LookupStrategy::Standard);
+        if phrases.is_empty() {
+            self.user_dict.insert(syllables, phrase);
+            return Ok(());
+        }
+        self.hist_dict.observe(syllables, phrase);
         self.dirty_level += 1;
         Ok(())
     }
     fn unlearn_phrase(&mut self, syllables: &[Syllable], phrase: &str) -> Result<(), EditorError> {
-        // let _ = self
-        //     .dict
-        //     .remove_phrase(syllables, phrase)
-        //     .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
+        self.user_dict.remove(syllables, phrase);
+        self.hist_dict.remove(syllables, phrase);
         self.dirty_level += 1;
         Ok(())
     }
@@ -829,15 +820,10 @@ impl SharedState {
         self.last_key_behavior = EditorKeyBehavior::Commit;
     }
     fn auto_learn(&mut self, intervals: &[Interval]) {
-        // for (syllables, phrase) in collect_new_phrases(intervals, self.com.symbols()) {
-        //     if self.dict.is_excluded(&syllables, &phrase) {
-        //         debug!("skip autolearn excluded phrase {phrase} {syllables:?}");
-        //         continue;
-        //     }
-        //     if let Err(error) = self.learn_phrase(&syllables, &phrase) {
-        //         error!("Failed to learn phrase {phrase} from {syllables:?}: {error:#}");
-        //     }
-        // }
+        for (syllables, phrase) in collect_new_phrases(intervals, self.com.symbols()) {
+            self.hist_dict.observe(&syllables, &phrase);
+            self.dirty_level += 1;
+        }
     }
 }
 
@@ -913,7 +899,7 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
 impl BasicEditor for Editor {
     fn process_keyevent(&mut self, key_event: KeyboardEvent) -> EditorKeyBehavior {
         info!("process {}", key_event);
-        // self.shared.estimate.tick();
+        self.shared.hist_dict.tick();
         // reset?
         self.shared.notice_buffer.clear();
         if self.shared.last_key_behavior == EditorKeyBehavior::Commit {

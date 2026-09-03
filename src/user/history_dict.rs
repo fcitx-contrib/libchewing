@@ -11,7 +11,6 @@ use std::{
 };
 
 use scoped_error::{bail, expect_error, impl_context_error};
-use smol_str::{SmolStr, ToSmolStr};
 use tinyvec::{TinyVec, tiny_vec};
 
 use crate::{
@@ -174,6 +173,42 @@ impl HistoryDict {
             Ok(())
         })
     }
+    pub(crate) fn tick(&self) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire HistoryDict writer lock");
+        lock.generation += 1;
+    }
+    pub(crate) fn observe(&self, syllables: &[Syllable], word: &str) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire HistoryDict writer lock");
+        let wid = lock.string_table.intern(word);
+        let generation = lock.generation;
+        let hist_entries = lock.records.entry(syllables.into()).or_default();
+        if let Some(pos) = hist_entries.iter().position(|e| e.wid == wid) {
+            hist_entries[pos].seen += 1;
+        } else {
+            hist_entries.push(HistoryDictEntry {
+                wid,
+                seen: 1,
+                epoch: generation,
+            });
+        }
+    }
+    pub fn remove(&self, syllables: &[Syllable], word: &str) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire UserDict writer lock");
+        let wid = lock.string_table.intern(word);
+        let hist_entries = lock.records.entry(syllables.into()).or_default();
+        if let Some(pos) = hist_entries.iter().position(|e| e.wid == wid) {
+            hist_entries.remove(pos);
+        }
+    }
     pub(crate) fn lookup(
         &self,
         syllables: &[Syllable],
@@ -182,7 +217,7 @@ impl HistoryDict {
         let lock = self
             .inner
             .read()
-            .expect("Unable to acquire UserDict reader lock");
+            .expect("Unable to acquire HistoryDict reader lock");
         // TODO: support prefix lookup
         lock.records
             .get(syllables)
