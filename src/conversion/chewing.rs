@@ -37,7 +37,7 @@ impl ChewingEngine {
                         text: match edge.surface {
                             Surface::Word(wid) => self
                                 .string_table
-                                .get(wid)
+                                .get_text(wid)
                                 .unwrap_or("".into())
                                 .to_string()
                                 .into_boxed_str(),

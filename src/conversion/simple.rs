@@ -38,7 +38,12 @@ impl SimpleEngine {
                     .cloned();
                 let phrase_str = phrase.map_or_else(
                     || sym.to_syllable().unwrap().to_string(),
-                    |wid| self.string_table.get(wid).unwrap_or("".into()).to_string(),
+                    |wid| {
+                        self.string_table
+                            .get_text(wid)
+                            .unwrap_or("".into())
+                            .to_string()
+                    },
                 );
                 intervals.push(Interval {
                     start: i,

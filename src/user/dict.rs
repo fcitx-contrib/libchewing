@@ -123,7 +123,7 @@ impl UserDict {
                 for entry in entries {
                     let word = lock
                         .string_table
-                        .get(entry.wid)
+                        .get_text(entry.wid)
                         .expect("Should have this word");
                     writeln!(
                         writer,
@@ -137,14 +137,12 @@ impl UserDict {
             Ok(())
         })
     }
-    pub fn get_text(&self, wid: WordId) -> Option<Cow<'_, str>> {
+    pub fn get_text(&self, wid: WordId) -> Option<String> {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire UserDict reader lock");
-        lock.string_table
-            .get(wid)
-            .map(|s| Cow::Owned(s.into_owned()))
+        lock.string_table.get_text(wid)
     }
     pub fn lookup(
         &self,

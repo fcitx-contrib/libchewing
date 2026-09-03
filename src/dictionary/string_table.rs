@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::BTreeMap,
     fmt::Debug,
     fs, io,
@@ -12,13 +11,14 @@ use crate::model::{WordId, WordOrig};
 /// Fast and compact indexing of LF delimited strings
 #[derive(Clone)]
 pub struct StringTable {
-    inner: Arc<StringTableInner>,
+    inner: Arc<RwLock<StringTableInner>>,
 }
 
 struct StringTableInner {
     buffer: Box<str>,
     offset: Box<[u32]>,
-    intern: RwLock<Vec<String>>,
+    vec: Vec<String>,
+    map: BTreeMap<String, u32>,
 }
 
 impl Debug for StringTable {
@@ -35,11 +35,12 @@ impl Debug for StringTable {
                     .finish_non_exhaustive()
             }
         }
-        let end = self.inner.buffer.len().min(100);
-        let buffer_prefix = format!("{}...", &self.inner.buffer[..end]);
+        let lock = self.inner.read().expect("Failed to acquire reader lock");
+        let end = lock.buffer.len().min(100);
+        let buffer_prefix = format!("{}...", &lock.buffer[..end]);
         f.debug_struct("StringTable")
             .field("buffer", &buffer_prefix)
-            .field("offset", &IntList(&self.inner.offset))
+            .field("offset", &IntList(&lock.offset))
             .finish()
     }
 }
@@ -48,11 +49,12 @@ impl StringTable {
     /// Creates an empty StringTable
     pub fn new() -> StringTable {
         StringTable {
-            inner: Arc::new(StringTableInner {
+            inner: Arc::new(RwLock::new(StringTableInner {
                 buffer: String::new().into_boxed_str(),
                 offset: vec![].into_boxed_slice(),
-                intern: RwLock::new(vec![]),
-            }),
+                vec: vec![],
+                map: BTreeMap::new(),
+            })),
         }
     }
     /// Reads strings from a file and constructs a StringTable
@@ -65,80 +67,65 @@ impl StringTable {
         let buffer = buffer.into_boxed_str();
         let bob = buffer.as_ptr() as usize;
         let mut offset = vec![];
+        let mut map = BTreeMap::new();
         for line in buffer.lines() {
             offset.push((line.as_ptr() as usize - bob) as u32);
+            map.insert(line.to_owned(), offset.len() as u32);
         }
         let offset = offset.into_boxed_slice();
-        let intern = RwLock::new(vec![]);
         StringTable {
-            inner: Arc::new(StringTableInner {
+            inner: Arc::new(RwLock::new(StringTableInner {
                 buffer,
                 offset,
-                intern,
-            }),
+                vec: vec![],
+                map,
+            })),
         }
-    }
-    pub fn intern(&self, word: &str) -> WordId {
-        let mut intern = self
-            .inner
-            .intern
-            .write()
-            .expect("StringTable lock posioned");
-        let wid = intern.len();
-        intern.push(word.to_owned());
-        WordId::from_user(wid as u32)
     }
     /// Returns the number of strings in the table
     pub fn len(&self) -> usize {
-        let intern = self.inner.intern.read().expect("StringTable lock posioned");
-        self.inner.offset.len() + intern.len()
+        let lock = self.inner.read().expect("StringTable lock posioned");
+        lock.vec.len() + lock.offset.len()
+    }
+    pub fn intern(&self, word: &str) -> WordId {
+        // check existing mapping
+        {
+            let lock = self.inner.read().expect("StringTable lock posioned");
+            if let Some(wid) = lock.map.get(word) {
+                return WordId(*wid);
+            }
+        }
+        let mut lock = self.inner.write().expect("StringTable lock posioned");
+        let wid = WordId::MIN_USER + lock.vec.len() as u32;
+        lock.vec.push(word.to_owned());
+        lock.map.insert(word.to_owned(), wid);
+        WordId(wid)
+    }
+    pub fn get_wid(&self, word: &str) -> Option<WordId> {
+        let lock = self.inner.read().expect("StringTable lock posioned");
+        lock.map.get(word).map(|wid| WordId(*wid))
     }
     /// Returns the index-th string in the table as &str
-    pub fn get(&self, wid: WordId) -> Option<Cow<'_, str>> {
+    pub fn get_text(&self, wid: WordId) -> Option<String> {
+        let lock = self.inner.read().expect("StringTable lock posioned");
         match wid.orig() {
             WordOrig::Static => {
-                let offset = self.inner.offset.get(wid.0 as usize).map(|o| *o as usize)?;
-                let offset_1 = self
-                    .inner
+                let offset = lock.offset.get(wid.0 as usize).map(|o| *o as usize)?;
+                let offset_1 = lock
                     .offset
                     .get(wid.0 as usize + 1)
                     .map(|o| *o as usize)
-                    .unwrap_or(self.inner.buffer.len());
+                    .unwrap_or(lock.buffer.len());
                 let s = offset;
                 let e = offset_1;
-                Some(Cow::Borrowed(&self.inner.buffer[s..e].trim_ascii_end()))
+                Some(lock.buffer[s..e].trim_ascii_end().to_owned())
             }
             WordOrig::User => {
-                let intern = self.inner.intern.read().expect("StringTable lock posioned");
                 let offset = wid.as_offset();
-                intern.get(offset).map(|s| Cow::Owned(s.clone()))
+                lock.vec.get(offset).map(|s| s.to_owned())
             }
             _ => panic!("unsupported"),
         }
-    }
-    // FIXME: remove this or make it work with intern table
-    /// Returns an iterator of the static string table
-    pub fn iter(&self) -> impl Iterator<Item = (Cow<'_, str>, u32)> {
-        (1..self.inner.offset.len()).filter_map(|i| {
-            let i = i as u32;
-            self.get(WordId(i)).map(|s| (s, i))
-        })
-    }
-    /// Creates an inverse map from strings to indexes
-    pub fn to_map(&self) -> BTreeMap<Cow<'_, str>, u32> {
-        let mut map = BTreeMap::new();
-        // WordId(0) is <unk/>
-        for i in 1..self.inner.offset.len() {
-            let i = i as u32;
-            if let Some(string) = self.get(WordId(i)) {
-                map.insert(string, i);
-            }
-        }
-        let intern = self.inner.intern.read().expect("StringTable lock posioned");
-        for (i, word) in intern.iter().enumerate() {
-            map.insert(Cow::Owned(word.clone()), WordId::MIN_USER.0 + i as u32);
-        }
-        map
     }
 }
 
@@ -151,38 +138,38 @@ mod test {
     fn empty_buffer() {
         let st = StringTable::from_string("".to_string());
         assert_eq!(0, st.len());
-        assert_eq!(None, st.get(0.into()));
-        assert_eq!(None, st.get(WordId::MAX));
+        assert_eq!(None, st.get_text(0.into()));
+        assert_eq!(None, st.get_text(WordId(100)));
     }
     #[test]
     fn oneline() {
         let st = StringTable::from_string("test\n".to_string());
         assert_eq!(1, st.len());
-        assert_eq!("test", st.get(0.into()).unwrap());
-        assert_eq!(None, st.get(WordId::MAX));
+        assert_eq!("test", st.get_text(0.into()).unwrap());
+        assert_eq!(None, st.get_text(WordId(100)));
     }
     #[test]
     fn oneline_no_lf() {
         let st = StringTable::from_string("test".to_string());
         assert_eq!(1, st.len());
-        assert_eq!("test", st.get(0.into()).unwrap());
-        assert_eq!(None, st.get(WordId::MAX));
+        assert_eq!("test", st.get_text(0.into()).unwrap());
+        assert_eq!(None, st.get_text(WordId(100)));
     }
     #[test]
     fn multi_lines() {
         let st = StringTable::from_string("test\nline2\nline3\n".to_string());
         assert_eq!(3, st.len());
-        assert_eq!("test", st.get(0.into()).unwrap());
-        assert_eq!("line3", st.get(2.into()).unwrap());
-        assert_eq!(None, st.get(WordId::MAX));
+        assert_eq!("test", st.get_text(0.into()).unwrap());
+        assert_eq!("line3", st.get_text(2.into()).unwrap());
+        assert_eq!(None, st.get_text(WordId(100)));
     }
     #[test]
     fn multi_lines_no_last_lf() {
         let st = StringTable::from_string("test\nline2\nline3".to_string());
         assert_eq!(3, st.len());
-        assert_eq!("test", st.get(0.into()).unwrap());
-        assert_eq!("line3", st.get(2.into()).unwrap());
-        assert_eq!(None, st.get(WordId::MAX));
+        assert_eq!("test", st.get_text(0.into()).unwrap());
+        assert_eq!("line3", st.get_text(2.into()).unwrap());
+        assert_eq!(None, st.get_text(WordId(100)));
     }
     #[test]
     fn debug() {

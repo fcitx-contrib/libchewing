@@ -18,8 +18,7 @@ enum ArpaSection {
 pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()> {
     let mut compiler = StaticLmCompiler::new();
     let arpa_reader = BufReader::new(File::open(arpa)?);
-    let words_table = StringTable::open(words)?;
-    let words_map = words_table.to_map();
+    let string_table = StringTable::open(words)?;
 
     let mut section = ArpaSection::Begin;
     for io in arpa_reader.lines() {
@@ -64,8 +63,8 @@ pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()>
             let mut cols = line.split_whitespace();
             let log_prob: f64 = cols.next().context("Expecting log probability")?.parse()?;
             let word = cols.next().context("Expecting word")?.trim();
-            let wid = words_map
-                .get(word)
+            let wid = string_table
+                .get_wid(word)
                 .with_context(|| format!("Unknown word {word}"))?;
             compiler.insert(WordId(0), WordId(*wid), log_prob)?;
         }
@@ -75,11 +74,11 @@ pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()>
             let log_prob: f64 = cols.next().context("Expecting log probability")?.parse()?;
             let word1 = cols.next().context("Expecting word")?.trim();
             let word2 = cols.next().context("Expecting word")?.trim();
-            let wid1 = words_map
-                .get(word1)
+            let wid1 = string_table
+                .get_wid(word1)
                 .with_context(|| format!("Unknown word {word1}"))?;
-            let wid2 = words_map
-                .get(word2)
+            let wid2 = string_table
+                .get_wid(word2)
                 .with_context(|| format!("Unknown word {word2}"))?;
             compiler.insert(WordId(*wid1), WordId(*wid2), log_prob)?;
         }

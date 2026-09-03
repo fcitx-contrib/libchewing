@@ -650,7 +650,12 @@ impl SharedState {
                 continue;
             }
             if interval.is_phrase {
-                // self.com.select(interval);
+                let wid = self.string_table.intern(&interval.text);
+                self.com.select(Selection {
+                    start: interval.start,
+                    end: interval.end,
+                    wid,
+                });
             }
         }
         self.nth_conversion = 0;
@@ -1449,7 +1454,7 @@ impl Selecting {
             Selector::Phrase(sel) => sel
                 .candidates(editor)
                 .into_iter()
-                .filter_map(|wid| editor.string_table.get(wid))
+                .filter_map(|wid| editor.string_table.get_text(wid))
                 .map(|s| s.into())
                 .collect(),
             Selector::Symbol(sel) => sel.menu(),

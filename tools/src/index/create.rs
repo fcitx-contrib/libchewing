@@ -12,8 +12,7 @@ pub(crate) fn create_index(src: &Path, words: &Path, out: &Path) -> Result<()> {
     let read_err = || format!("Failed to read dictionary source from {}", src.display());
     let write_err = || format!("Failed to write dictionary index to {}", out.display());
 
-    let words_table = StringTable::open(words)?;
-    let words_map = words_table.to_map();
+    let string_table = StringTable::open(words)?;
     let reader = BufReader::new(File::open(src).with_context(read_err)?);
     let mut builder = StaticDictBuilder::new();
 
@@ -35,7 +34,7 @@ pub(crate) fn create_index(src: &Path, words: &Path, out: &Path) -> Result<()> {
             syllables.push(Syllable::from_str(syl_str)?);
         }
 
-        if let Some(wid) = words_map.get(word.into()) {
+        if let Some(wid) = string_table.get_wid(word) {
             builder.insert(&syllables, WordId(*wid));
         }
     }

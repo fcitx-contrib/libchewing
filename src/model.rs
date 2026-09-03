@@ -26,18 +26,10 @@ impl From<u32> for WordId {
 }
 
 impl WordId {
-    pub(crate) const MIN_STATIC: WordId = WordId(0x00000000);
-    pub(crate) const MIN_HISTORY: WordId = WordId(0x01000000);
-    pub(crate) const MIN_EXTRA: WordId = WordId(0x02000000);
-    pub(crate) const MIN_USER: WordId = WordId(0x0F000000);
-    pub(crate) fn inc(&mut self) {
-        self.0 += 1;
-    }
+    pub(crate) const MIN_STATIC: u32 = 0x00000000;
+    pub(crate) const MIN_USER: u32 = 0x01000000;
     pub(crate) fn as_offset(&self) -> usize {
         (self.0 & 0x00FFFFFF) as usize
-    }
-    pub(crate) fn from_user(id: u32) -> WordId {
-        WordId(Self::MIN_USER.0 + id)
     }
 }
 
@@ -46,10 +38,6 @@ impl WordId {
 pub enum WordOrig {
     /// The word is defined in the static word list
     Static,
-    /// The word is learned from user inputs
-    History,
-    /// The word is defined in an extra dictionary
-    Extra,
     /// The word is defined in the user vocabulary
     User,
     /// Unknown origin, might be invalid
@@ -57,16 +45,11 @@ pub enum WordOrig {
 }
 
 impl WordId {
-    pub const MIN: WordId = WordId(u32::MIN);
-    pub const MAX: WordId = WordId(u32::MAX);
-
     pub fn orig(&self) -> WordOrig {
         let prefix = self.0 & 0xFF000000;
         match prefix {
-            0x00000000 => WordOrig::Static,
-            0x01000000 => WordOrig::History,
-            0x02000000 => WordOrig::Extra,
-            0x0F000000 => WordOrig::User,
+            WordId::MIN_STATIC => WordOrig::Static,
+            WordId::MIN_USER => WordOrig::User,
             _ => WordOrig::Unknown,
         }
     }

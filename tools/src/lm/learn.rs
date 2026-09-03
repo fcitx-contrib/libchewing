@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::BTreeMap,
     fs::File,
     io::{BufRead, BufWriter, Write, stdin},
@@ -74,8 +73,7 @@ pub(crate) fn learn_lm_with_config(
     output: &Path,
     config: &PruningConfig,
 ) -> Result<()> {
-    let words_table = StringTable::open(words)?;
-    let words_map: FxHashMap<Cow<'_, str>, u32> = words_table.iter().collect();
+    let string_table = StringTable::open(words)?;
 
     let stdin = stdin();
     let n_threads = std::thread::available_parallelism()?.get();
@@ -87,7 +85,7 @@ pub(crate) fn learn_lm_with_config(
         for _ in 0..n_threads {
             let work_recv = work_recv.clone();
             let result_send = result_send.clone();
-            let words_map = &words_map;
+            let string_table = &string_table;
 
             s.spawn(move || {
                 let mut local_uni = FxHashMap::default();
@@ -98,9 +96,7 @@ pub(crate) fn learn_lm_with_config(
                     let mut prev_wid = None;
 
                     for word in line.split_whitespace() {
-                        if let Some(&wid) = words_map.get(word) {
-                            let wid = WordId(wid);
-
+                        if let Some(wid) = string_table.get_wid(word) {
                             // Unigram count
                             *local_uni.entry(wid).or_insert(0) += 1;
 
@@ -201,7 +197,7 @@ pub(crate) fn learn_lm_with_config(
 
     writeln!(out, r"\1-grams:")?;
     for (&wid, &count) in &unigrams {
-        let word = words_table.get(wid).expect("should have word");
+        let word = string_table.get_text(wid).expect("should have word");
         let log10prob = (count as f64 / unigram_total as f64).log10();
         writeln!(out, "{:.4} {}", log10prob, word)?;
     }
@@ -212,8 +208,8 @@ pub(crate) fn learn_lm_with_config(
         let cwp = unigrams.get(&wid1).expect("should have unigram");
         let log10prob = (count as f64 / *cwp as f64).log10();
 
-        let word1 = words_table.get(wid1).expect("should have word");
-        let word2 = words_table.get(wid2).expect("should have word");
+        let word1 = string_table.get_text(wid1).expect("should have word");
+        let word2 = string_table.get_text(wid2).expect("should have word");
         writeln!(out, "{:.4} {} {}", log10prob, word1, word2)?;
     }
 

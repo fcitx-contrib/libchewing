@@ -164,7 +164,7 @@ impl HistoryDict {
                     }
                     let word = lock
                         .string_table
-                        .get(entry.wid)
+                        .get_text(entry.wid)
                         .expect("Should have this word");
                     encoder.write_data(word.as_bytes())?;
                     encoder.write_u32(entry.seen)?;
