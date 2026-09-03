@@ -5,7 +5,7 @@ use std::{
     cmp::{max, min},
     error::Error,
     fmt::{Debug, Display},
-    fs::File,
+    fs::{self, File},
     io::BufReader,
     mem,
 };
@@ -220,6 +220,10 @@ impl Editor {
                 if should_migrate_v3(up) {
                     migrate_v3_to_v4(up)?;
                 }
+            }
+
+            if let Some(vp) = sp.user_versioned_path() {
+                fs::create_dir_all(vp)?;
             }
 
             let mut user_dict_path = sp.find_user_file("user_dict.csv");
@@ -705,15 +709,14 @@ impl SharedState {
             .skip(start)
             .take(end - start)
             .collect::<String>();
-        // if self
-        //     .dict
-        //     .user_dict_mut()
-        //     .lookup(&syllables, LookupStrategy::Standard)
-        //     .into_iter()
-        //     .any(|it| it.as_str() == phrase)
-        // {
-        //     return Err(format!("已有：{phrase}"));
-        // }
+        if self
+            .user_dict
+            .lookup(&syllables, LookupStrategy::Standard)
+            .into_iter()
+            .any(|(wid, _)| self.string_table.get_text(wid).is_some_and(|s| s == phrase))
+        {
+            return Err(format!("已有：{phrase}"));
+        }
         let result = self
             .learn_phrase(&syllables, &phrase)
             .map_err(|_| "加詞失敗：字數不符或夾雜符號".to_owned());

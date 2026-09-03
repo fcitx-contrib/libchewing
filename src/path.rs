@@ -130,9 +130,13 @@ impl SearchPath {
     }
 
     pub fn user_file_path(&self, name: &str) -> Option<PathBuf> {
-        let prefix = self.user_datadir.as_ref()?;
-        let versioned_path = prefix.join(CURRENT_VERSION_PREFIX);
+        let versioned_path = self.user_versioned_path()?;
         Some(versioned_path.join(name))
+    }
+
+    pub fn user_versioned_path(&self) -> Option<PathBuf> {
+        let prefix = self.user_datadir.as_ref()?;
+        Some(prefix.join(CURRENT_VERSION_PREFIX))
     }
 }
 

@@ -1,7 +1,6 @@
 //! User editable dictionary source
 
 use std::{
-    borrow::Cow,
     collections::BTreeMap,
     fmt::Display,
     fs::File,

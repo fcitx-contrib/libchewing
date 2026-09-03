@@ -89,11 +89,8 @@ impl StringTable {
     }
     pub fn intern(&self, word: &str) -> WordId {
         // check existing mapping
-        {
-            let lock = self.inner.read().expect("StringTable lock posioned");
-            if let Some(wid) = lock.map.get(word) {
-                return WordId(*wid);
-            }
+        if let Some(wid) = self.get_wid(word) {
+            return wid;
         }
         let mut lock = self.inner.write().expect("StringTable lock posioned");
         let wid = WordId::MIN_USER + lock.vec.len() as u32;

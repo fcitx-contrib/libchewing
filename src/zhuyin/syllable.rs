@@ -17,7 +17,7 @@ pub(crate) fn parse_syllable_vec(input: &str) -> Result<SyllableVec, ParseSyllab
     let mut res = SyllableVec::new();
     let mut builder = SyllableBuilder::new();
     for ch in input.chars() {
-        if ch.is_whitespace() {
+        if ch.is_whitespace() || ch == '-' {
             res.push(builder.build());
             builder = SyllableBuilder::new();
             continue;
@@ -27,6 +27,7 @@ pub(crate) fn parse_syllable_vec(input: &str) -> Result<SyllableVec, ParseSyllab
             .insert(bopomofo)
             .or_raise(|| ParseSyllableError::new())?;
     }
+    res.push(builder.build());
     Ok(res)
 }
 

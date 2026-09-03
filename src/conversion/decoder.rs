@@ -9,7 +9,7 @@ use std::{
 use crate::{
     conversion::word_lattice::{Edge, WordLattice},
     lm::static_lm::StaticLm,
-    model::{Surface, WordId},
+    model::{Surface, WordId, WordOrig},
 };
 
 #[derive(Debug)]
@@ -30,6 +30,7 @@ impl Decoder {
         }
 
         const LOG10_ALPHA_0_4: f64 = -0.39794;
+        const USER_FLOOR: f64 = -2.0;
         const UNIGRAM_FLOOR: f64 = -20.0;
         const ERROR_FLOOR: f64 = -30.0;
         const HISTORY_BOOST_FACTOR: f64 = 0.5;
@@ -41,7 +42,13 @@ impl Decoder {
                 (Surface::Word(wid), _) | (_, Surface::Word(wid)) => (WordId(0), wid),
                 _ => return ERROR_FLOOR.neg(),
             };
-            let unigram_prob = self.lm.get(0, wid2.0).unwrap_or(UNIGRAM_FLOOR);
+            let unigram_prob = if let Some(prob) = self.lm.get(0, wid2.0) {
+                prob
+            } else if matches!(wid2.orig(), WordOrig::User) {
+                USER_FLOOR
+            } else {
+                UNIGRAM_FLOOR
+            };
             // Attempt to get the bigram probability
             let general_cost = if let Some(bigram_prob) = self.lm.get(wid1.0, wid2.0) {
                 // Use the bigram probability directly

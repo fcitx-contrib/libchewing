@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use smol_str::SmolStr;
-
 use crate::{
     dictionary::LookupStrategy,
     lm::StaticDict,
