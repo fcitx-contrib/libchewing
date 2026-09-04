@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     dictionary::LookupStrategy,
@@ -8,7 +8,7 @@ use crate::{
     zhuyin::Syllable,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CompositeDict {
     inner: Arc<CompositeDictInner>,
 }
@@ -39,23 +39,39 @@ impl CompositeDict {
     }
 
     pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<(WordId, i32)> {
-        let mut res = BTreeMap::new();
         // base value
-        for wid in self.inner.static_dict.lookup(syllables, strategy) {
-            res.insert(wid, 0);
-        }
-        for wid in self.inner.rare_dict.lookup(syllables, strategy) {
-            res.insert(wid, -100000);
-        }
+        let mut res: Vec<_> = self
+            .inner
+            .static_dict
+            .lookup(syllables, strategy)
+            .into_iter()
+            .map(|w| (w, 0))
+            .collect();
         // rare boost
+        for wid in self.inner.rare_dict.lookup(syllables, strategy) {
+            const RARE_BOOST: i32 = -100000;
+            if let Some(pos) = res.iter().position(|w| w.0 == wid) {
+                res[pos].1 = RARE_BOOST;
+            } else {
+                res.push((wid, RARE_BOOST));
+            }
+        }
         // history boost
         for (wid, boost) in self.inner.history_dict.lookup(syllables, strategy) {
-            res.insert(wid, boost);
+            if let Some(pos) = res.iter().position(|w| w.0 == wid) {
+                res[pos].1 = boost;
+            } else {
+                res.push((wid, boost));
+            }
         }
         // user boost
         for (wid, boost) in self.inner.user_dict.lookup(syllables, strategy) {
-            res.insert(wid, boost);
+            if let Some(pos) = res.iter().position(|w| w.0 == wid) {
+                res[pos].1 = boost;
+            } else {
+                res.push((wid, boost));
+            }
         }
-        res.into_iter().collect()
+        res
     }
 }

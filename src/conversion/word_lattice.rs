@@ -4,19 +4,14 @@ use log::trace;
 
 use crate::{
     conversion::{Composition, Gap, Symbol},
-    dictionary::LookupStrategy,
-    lm::StaticDict,
+    dictionary::{CompositeDict, LookupStrategy},
     model::{Surface, WordId},
-    user::{HistoryDict, UserDict},
     zhuyin::Syllable,
 };
 
 #[derive(Debug)]
 pub struct WordLatticeBuilder {
-    pub static_dict: StaticDict,
-    pub rare_dict: StaticDict,
-    pub user_dict: UserDict,
-    pub history_dict: HistoryDict,
+    pub dict: CompositeDict,
 }
 
 #[derive(Debug)]
@@ -96,36 +91,12 @@ impl WordLatticeBuilder {
         WordLattice { len, edges }
     }
 
-    // FIXME: duplicate words
     fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Surface, i32)> {
-        let mut words = vec![];
-        // TODO: load this as part of static_dict?
-        let rare_words = self.rare_dict.lookup(syllables, LookupStrategy::Standard);
-        words.extend(
-            self.user_dict
-                .lookup(syllables, LookupStrategy::Standard)
-                .iter()
-                .map(|&(w, b)| (Surface::Word(w), b)),
-        );
-        words.extend(
-            self.history_dict
-                .lookup(syllables, LookupStrategy::Standard)
-                .iter()
-                .map(|&(w, b)| (Surface::Word(w), b)),
-        );
-        words.extend(
-            self.static_dict
-                .lookup(syllables, LookupStrategy::Standard)
-                .iter()
-                .map(|&w| {
-                    if rare_words.contains(&w) {
-                        (Surface::Word(w), -100000)
-                    } else {
-                        (Surface::Word(w), 0)
-                    }
-                }),
-        );
-        words
+        self.dict
+            .lookup(syllables, LookupStrategy::Standard)
+            .into_iter()
+            .map(|(w, b)| (Surface::Word(w), b))
+            .collect()
     }
 
     fn find_words(

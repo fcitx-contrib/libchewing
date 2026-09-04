@@ -268,11 +268,11 @@ impl Editor {
                 None => HistoryDict::new(string_table.clone()),
             };
 
+            let composite_dict =
+                CompositeDict::new(static_dict, rare_dict, hist_dict.clone(), user_dict.clone());
+
             let word_lattice_builder = WordLatticeBuilder {
-                static_dict: static_dict.clone(),
-                rare_dict: rare_dict.clone(),
-                history_dict: hist_dict.clone(),
-                user_dict: user_dict.clone(),
+                dict: composite_dict.clone(),
             };
 
             let decoder = Decoder { lm };
@@ -283,9 +283,6 @@ impl Editor {
                 string_table: string_table.clone(),
                 lookup_strategy: LookupStrategy::Standard,
             });
-
-            let composite_dict =
-                CompositeDict::new(static_dict, rare_dict, hist_dict.clone(), user_dict.clone());
 
             let abbrev = AbbrevTable::new();
             let sym_sel = SymbolSelector::new(b"".as_slice())?;
@@ -1761,12 +1758,7 @@ impl EditorBuilder {
             self.user_dict.clone(),
         );
 
-        let word_lattice_builder = WordLatticeBuilder {
-            static_dict: self.static_dict,
-            rare_dict: self.rare_dict,
-            user_dict: self.user_dict.clone(),
-            history_dict: self.history_dict.clone(),
-        };
+        let word_lattice_builder = WordLatticeBuilder { dict: dict.clone() };
 
         let decoder = Decoder { lm: self.lm };
         let conversion_engine = Box::new(ChewingEngine {
