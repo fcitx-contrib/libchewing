@@ -96,6 +96,7 @@ impl WordLatticeBuilder {
         WordLattice { len, edges }
     }
 
+    // FIXME: duplicate words
     fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Surface, i32)> {
         let mut words = vec![];
         // TODO: load this as part of static_dict?

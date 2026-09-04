@@ -142,6 +142,15 @@ impl Iterator for WordsIter<'_> {
 }
 
 impl StaticDict {
+    pub fn new() -> StaticDict {
+        StaticDict {
+            inner: Arc::new(StaticDictInner {
+                index: Box::new([]),
+                words: Box::new([]),
+            }),
+        }
+    }
+
     pub fn open<P: AsRef<Path>>(path: P) -> Result<StaticDict, StaticDictError> {
         expect_error("Failed to open static dictionary", || {
             let reader = BufReader::new(File::open(path)?);
@@ -390,6 +399,13 @@ impl StaticDictBuilder {
 
             Ok(())
         })
+    }
+
+    pub fn build(self) -> StaticDict {
+        let mut buf = vec![];
+        self.to_writer(&mut buf)
+            .expect("Failed to serialize in-memory StaticDict");
+        StaticDict::from_reader(buf.as_slice()).expect("Failed to build im-memory StaticDict")
     }
 
     pub fn insert(&mut self, syllables: &[Syllable], wid: WordId) {

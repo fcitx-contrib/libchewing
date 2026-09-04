@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     dictionary::LookupStrategy,
     lm::StaticDict,
-    model::WordId,
+    model::{WordId, WordOrig},
     user::{HistoryDict, UserDict},
     zhuyin::Syllable,
 };
@@ -35,17 +35,41 @@ impl CompositeDict {
         }
     }
 
-    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<(WordId, i32)> {
+    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<WordId> {
         let mut res = vec![];
         res.extend(
             self.inner
                 .static_dict
                 .lookup(syllables, strategy)
                 .into_iter()
-                .map(|w| (w, 0)),
+                .map(|w| w),
         );
-        res.extend(self.inner.history_dict.lookup(syllables, strategy));
-        res.extend(self.inner.user_dict.lookup(syllables, strategy));
+        res.extend(
+            self.inner
+                .history_dict
+                .lookup(syllables, strategy)
+                .iter()
+                .filter_map(|(w, _)| {
+                    if matches!(w.orig(), WordOrig::User) {
+                        Some(w)
+                    } else {
+                        None
+                    }
+                }),
+        );
+        res.extend(
+            self.inner
+                .user_dict
+                .lookup(syllables, strategy)
+                .iter()
+                .filter_map(|(w, _)| {
+                    if matches!(w.orig(), WordOrig::User) {
+                        Some(w)
+                    } else {
+                        None
+                    }
+                }),
+        );
         res
     }
 }

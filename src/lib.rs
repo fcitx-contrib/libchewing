@@ -36,7 +36,7 @@
 //! use chewing::input::keymap::{map_ascii, QWERTY_MAP};
 //! use chewing::dictionary::DEFAULT_DICT_NAMES;
 //!
-//! let mut editor = Editor::chewing(None, None, &DEFAULT_DICT_NAMES);
+//! let mut editor = Editor::chewing(None, None)?;
 //!
 //! editor.process_keyevent(map_ascii(&QWERTY_MAP, b'd'));
 //! editor.process_keyevent(map_ascii(&QWERTY_MAP, b'j'));

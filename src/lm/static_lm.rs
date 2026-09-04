@@ -62,6 +62,8 @@ fn decode_varint(data: &[u8], offset: usize) -> (u32, usize) {
     (result, pos - offset)
 }
 
+// TODO: implement Clone by Arc
+// TODO: always use direct array for unigram so Lazy mode is fast.
 #[derive(Debug)]
 pub struct StaticLm {
     /// Cumulative entry counts: row_index[i+1] - row_index[i] = nnz in row i.
@@ -90,6 +92,14 @@ enum ColStorage {
 }
 
 impl StaticLm {
+    pub fn new() -> StaticLm {
+        StaticLm {
+            row_index: Box::new([]),
+            values: Box::new([]),
+            cols: ColStorage::Decoded(Box::new([])),
+        }
+    }
+
     pub fn from_reader<R>(reader: R, mode: LoadMode) -> Result<StaticLm, StaticLmError>
     where
         R: Read,
