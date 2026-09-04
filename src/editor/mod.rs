@@ -13,7 +13,6 @@ use std::{
 use log::{debug, error, info, warn};
 use scoped_error::{ErrorExt, expect_error, impl_context_error};
 
-pub use self::estimate::{LaxUserFreqEstimate, UserFreqEstimate};
 pub use self::{abbrev::AbbrevTable, selection::symbol::SymbolSelector};
 use self::{
     composition_editor::CompositionEditor,
@@ -36,7 +35,6 @@ use crate::{
 
 mod abbrev;
 mod composition_editor;
-mod estimate;
 mod selection;
 pub mod zhuyin_layout;
 
@@ -1819,18 +1817,15 @@ impl_context_error!(pub NewEditorError);
 
 #[cfg(test)]
 mod tests {
+    use super::BasicEditor;
     use super::collect_new_phrases;
-    use super::estimate::LaxUserFreqEstimate;
-    use super::{BasicEditor, Editor};
-    use crate::conversion::{Decoder, WordLatticeBuilder};
-    use crate::dictionary::{CompositeDict, LookupStrategy, StringTable};
+    use crate::dictionary::StringTable;
     use crate::editor::{EditorBuilder, LanguageMode};
-    use crate::lm::{StaticDict, StaticDictBuilder, StaticLm};
-    use crate::user::{HistoryDict, UserDict};
+    use crate::lm::StaticDictBuilder;
+    use crate::user::UserDict;
     use crate::{
-        conversion::{ChewingEngine, Interval, Symbol},
-        dictionary::{Layered, TrieBuf},
-        editor::{EditorKeyBehavior, SymbolSelector, abbrev::AbbrevTable},
+        conversion::{Interval, Symbol},
+        editor::EditorKeyBehavior,
         input::{
             KeyboardEvent, keycode,
             keymap::{QWERTY_MAP, map_ascii},
