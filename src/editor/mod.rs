@@ -168,6 +168,7 @@ pub(crate) struct SharedState {
     dict: CompositeDict,
     user_dict: UserDict,
     hist_dict: HistoryDict,
+    decoder: Decoder,
     abbr: AbbrevTable,
     sym_sel: SymbolSelector,
     options: EditorOptions,
@@ -278,13 +279,13 @@ impl Editor {
 
             let conversion_engine = Box::new(ChewingEngine {
                 word_lattice_builder,
-                decoder,
+                decoder: decoder.clone(),
                 string_table: string_table.clone(),
                 lookup_strategy: LookupStrategy::Standard,
             });
 
             let composite_dict =
-                CompositeDict::new(static_dict, hist_dict.clone(), user_dict.clone());
+                CompositeDict::new(static_dict, rare_dict, hist_dict.clone(), user_dict.clone());
 
             let abbrev = AbbrevTable::new();
             let sym_sel = SymbolSelector::new(b"".as_slice())?;
@@ -295,6 +296,7 @@ impl Editor {
                 composite_dict,
                 user_dict,
                 hist_dict,
+                decoder,
                 abbrev,
                 sym_sel,
             );
@@ -308,6 +310,7 @@ impl Editor {
         dict: CompositeDict,
         user_dict: UserDict,
         hist_dict: HistoryDict,
+        decoder: Decoder,
         abbr: AbbrevTable,
         sym_sel: SymbolSelector,
     ) -> Editor {
@@ -320,6 +323,7 @@ impl Editor {
                 dict,
                 user_dict,
                 hist_dict,
+                decoder,
                 abbr,
                 sym_sel,
                 options: EditorOptions::default(),
@@ -716,7 +720,7 @@ impl SharedState {
             .dict
             .lookup(&syllables, LookupStrategy::Standard)
             .into_iter()
-            .any(|wid| self.string_table.get_text(wid).is_some_and(|s| s == phrase))
+            .any(|(wid, _)| self.string_table.get_text(wid).is_some_and(|s| s == phrase))
         {
             return Err(format!("已有：{phrase}"));
         }
@@ -1752,6 +1756,7 @@ impl EditorBuilder {
     pub fn build(self) -> Editor {
         let dict = CompositeDict::new(
             self.static_dict.clone(),
+            self.rare_dict.clone(),
             self.history_dict.clone(),
             self.user_dict.clone(),
         );
@@ -1766,7 +1771,7 @@ impl EditorBuilder {
         let decoder = Decoder { lm: self.lm };
         let conversion_engine = Box::new(ChewingEngine {
             word_lattice_builder,
-            decoder,
+            decoder: decoder.clone(),
             string_table: self.string_table.clone(),
             lookup_strategy: self.lookup_strategy,
         });
@@ -1777,6 +1782,7 @@ impl EditorBuilder {
             dict,
             self.user_dict,
             self.history_dict,
+            decoder,
             self.abbrev,
             self.sym_sel,
         )
@@ -2002,8 +2008,7 @@ mod tests {
         let candidates = editor
             .all_candidates()
             .expect("should be in selection mode");
-        // FIXME
-        // assert_eq!(vec!["測", "冊"], candidates);
+        assert_eq!(vec!["測", "冊"], candidates);
     }
 
     #[test]

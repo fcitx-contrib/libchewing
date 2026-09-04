@@ -246,10 +246,9 @@ impl PhraseSelector {
             }
         }
         if editor.options.sort_candidates_by_frequency {
-            // FIXME
-            // candidates.sort_by_key(|wid| ed);
+            return editor.decoder.rank(candidates);
         }
-        candidates
+        candidates.into_iter().map(|(wid, _)| wid).collect()
     }
 
     pub(crate) fn interval(&self, phrase: impl Into<Box<str>>) -> Interval {

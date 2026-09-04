@@ -12,7 +12,7 @@ use crate::{
     model::{Surface, WordId, WordOrig},
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Decoder {
     pub lm: StaticLm,
 }
@@ -29,51 +29,62 @@ impl Decoder {
             return vec![Hypothesis::default()];
         }
 
-        const LOG10_ALPHA_0_4: f64 = -0.39794;
-        const USER_FLOOR: f64 = -2.0;
-        const UNIGRAM_FLOOR: f64 = -20.0;
-        const ERROR_FLOOR: f64 = -30.0;
-        const HISTORY_BOOST_FACTOR: f64 = 0.5;
-        const MANUAL_BOOST_FACTOR: f64 = 2.0;
-
         let paths = find_k_paths(n, lattice, |w1, w2, w2boost| {
-            let (wid1, wid2) = match (w1, w2) {
-                (Surface::Word(wid1), Surface::Word(wid2)) => (wid1, wid2),
-                (Surface::Word(wid), _) | (_, Surface::Word(wid)) => (WordId(0), wid),
-                _ => return ERROR_FLOOR.neg(),
-            };
-            let unigram_prob = if let Some(prob) = self.lm.get(0, wid2.0) {
-                prob
-            } else if matches!(wid2.orig(), WordOrig::User) {
-                USER_FLOOR
-            } else {
-                UNIGRAM_FLOOR
-            };
-            // Attempt to get the bigram probability
-            let general_cost = if let Some(bigram_prob) = self.lm.get(wid1.0, wid2.0) {
-                // Use the bigram probability directly
-                bigram_prob.neg()
-            } else {
-                // Stupid back-off: penalty + unigram
-                (LOG10_ALPHA_0_4 + unigram_prob).neg()
-            };
-            // let hist_unigram_prob = self.history_freq.get(wid2).unwrap_or(unigram_prob);
-            // let hist_gain = (hist_unigram_prob - unigram_prob).neg();
-            let hist_gain = 0.0;
-            let manual_freq = w2boost as f64;
-            let manual_gain = if manual_freq >= 0.0 {
-                (manual_freq + 1.0).log10()
-            } else {
-                -manual_freq.abs().log10()
-            };
-            let cost =
-                general_cost - HISTORY_BOOST_FACTOR * hist_gain - MANUAL_BOOST_FACTOR * manual_gain;
-            cost
+            cost_fun(&self.lm, w1, w2, w2boost)
         });
 
         debug_assert!(!paths.is_empty());
         paths
     }
+    pub fn rank(&self, mut candidates: Vec<(WordId, i32)>) -> Vec<WordId> {
+        candidates.sort_by(|a, b| {
+            let cost_a = cost_fun(&self.lm, Surface::None, Surface::Word(a.0), a.1);
+            let cost_b = cost_fun(&self.lm, Surface::None, Surface::Word(b.0), b.1);
+            cost_a.partial_cmp(&cost_b).unwrap_or(Ordering::Equal)
+        });
+        candidates.into_iter().map(|(w, _)| w).collect()
+    }
+}
+
+const LOG10_ALPHA_0_4: f64 = -0.39794;
+const USER_FLOOR: f64 = -2.0;
+const UNIGRAM_FLOOR: f64 = -20.0;
+const ERROR_FLOOR: f64 = -30.0;
+const HISTORY_BOOST_FACTOR: f64 = 0.5;
+const MANUAL_BOOST_FACTOR: f64 = 2.0;
+
+fn cost_fun(lm: &StaticLm, w1: Surface, w2: Surface, w2boost: i32) -> f64 {
+    let (wid1, wid2) = match (w1, w2) {
+        (Surface::Word(wid1), Surface::Word(wid2)) => (wid1, wid2),
+        (Surface::Word(wid), _) | (_, Surface::Word(wid)) => (WordId(0), wid),
+        _ => return ERROR_FLOOR.neg(),
+    };
+    let unigram_prob = if let Some(prob) = lm.get(0, wid2.0) {
+        prob
+    } else if matches!(wid2.orig(), WordOrig::User) {
+        USER_FLOOR
+    } else {
+        UNIGRAM_FLOOR
+    };
+    // Attempt to get the bigram probability
+    let general_cost = if let Some(bigram_prob) = lm.get(wid1.0, wid2.0) {
+        // Use the bigram probability directly
+        bigram_prob.neg()
+    } else {
+        // Stupid back-off: penalty + unigram
+        (LOG10_ALPHA_0_4 + unigram_prob).neg()
+    };
+    // let hist_unigram_prob = self.history_freq.get(wid2).unwrap_or(unigram_prob);
+    // let hist_gain = (hist_unigram_prob - unigram_prob).neg();
+    let hist_gain = 0.0;
+    let manual_freq = w2boost as f64;
+    let manual_gain = if manual_freq >= 0.0 {
+        (manual_freq + 1.0).log10()
+    } else {
+        -manual_freq.abs().log10()
+    };
+    let cost = general_cost - HISTORY_BOOST_FACTOR * hist_gain - MANUAL_BOOST_FACTOR * manual_gain;
+    cost
 }
 
 #[derive(Debug)]

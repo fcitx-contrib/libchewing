@@ -12,6 +12,7 @@ use std::{
     collections::BTreeMap,
     io::{Read, Write},
     ops::Neg,
+    sync::Arc,
 };
 
 use log::warn;
@@ -62,10 +63,14 @@ fn decode_varint(data: &[u8], offset: usize) -> (u32, usize) {
     (result, pos - offset)
 }
 
-// TODO: implement Clone by Arc
 // TODO: always use direct array for unigram so Lazy mode is fast.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StaticLm {
+    inner: Arc<StaticLmInner>,
+}
+
+#[derive(Debug)]
+struct StaticLmInner {
     /// Cumulative entry counts: row_index[i+1] - row_index[i] = nnz in row i.
     row_index: Box<[u32]>,
 
@@ -94,9 +99,11 @@ enum ColStorage {
 impl StaticLm {
     pub fn new() -> StaticLm {
         StaticLm {
-            row_index: Box::new([]),
-            values: Box::new([]),
-            cols: ColStorage::Decoded(Box::new([])),
+            inner: Arc::new(StaticLmInner {
+                row_index: Box::new([]),
+                values: Box::new([]),
+                cols: ColStorage::Decoded(Box::new([])),
+            }),
         }
     }
 
@@ -161,15 +168,17 @@ impl StaticLm {
             };
 
             Ok(StaticLm {
-                row_index,
-                values,
-                cols,
+                inner: Arc::new(StaticLmInner {
+                    row_index,
+                    values,
+                    cols,
+                }),
             })
         })
     }
 
     pub fn get(&self, row: u32, col: u32) -> Option<f64> {
-        match &self.cols {
+        match &self.inner.cols {
             ColStorage::Decoded(decoded) => self.get_eager(row, col, decoded),
             ColStorage::Varint {
                 row_byte_offsets,
@@ -180,11 +189,11 @@ impl StaticLm {
 
     /// Eager lookup: binary search on decoded `&[u32]` columns.
     fn get_eager(&self, row: u32, col: u32, decoded: &[u32]) -> Option<f64> {
-        let row_start = *self.row_index.get(row as usize)? as usize;
-        let row_end = *self.row_index.get(row as usize + 1)? as usize;
+        let row_start = *self.inner.row_index.get(row as usize)? as usize;
+        let row_end = *self.inner.row_index.get(row as usize + 1)? as usize;
 
         let cols = &decoded[row_start..row_end];
-        let vals = &self.values[row_start..row_end];
+        let vals = &self.inner.values[row_start..row_end];
 
         cols.binary_search(&col)
             .ok()
@@ -200,8 +209,8 @@ impl StaticLm {
         row_byte_offsets: &[u32],
         col_deltas: &[u8],
     ) -> Option<f64> {
-        let entry_start = *self.row_index.get(row as usize)? as usize;
-        let entry_end = *self.row_index.get(row as usize + 1)? as usize;
+        let entry_start = *self.inner.row_index.get(row as usize)? as usize;
+        let entry_end = *self.inner.row_index.get(row as usize + 1)? as usize;
         if entry_start == entry_end {
             return None;
         }
@@ -219,7 +228,7 @@ impl StaticLm {
             offset += consumed;
 
             if abs_col == col {
-                return Some(unquantize_log_prob(self.values[entry_idx]));
+                return Some(unquantize_log_prob(self.inner.values[entry_idx]));
             }
             // Since columns are sorted, we can stop early
             if abs_col > col {
