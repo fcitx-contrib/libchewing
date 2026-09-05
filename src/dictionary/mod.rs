@@ -10,24 +10,15 @@ use std::{
 };
 
 pub use self::composite::CompositeDict;
-pub use self::layered::Layered;
-pub use self::loader::{
-    AssetLoader, DEFAULT_DICT_NAMES, LoadDictionaryError, SingleDictionaryLoader,
-    UserDictionaryManager,
-};
 pub use self::string_table::StringTable;
 pub use self::trie::{Trie, TrieBuilder, TrieOpenOptions, TrieStatistics};
-pub use self::trie_buf::TrieBuf;
 pub use self::usage::DictionaryUsage;
 use crate::exn::Exn;
 use crate::zhuyin::Syllable;
 
 mod composite;
-mod layered;
-mod loader;
 mod string_table;
 mod trie;
-mod trie_buf;
 mod usage;
 
 /// A collection of metadata of a dictionary.
@@ -38,8 +29,8 @@ mod usage;
 /// # Examples
 ///
 /// ```no_run
-/// # use chewing::dictionary::{Dictionary, TrieBuf};
-/// # let dictionary = TrieBuf::new_in_memory();
+/// # use chewing::dictionary::{Dictionary, Trie};
+/// # let dictionary = Trie::new(&[][..]).unwrap();
 /// let about = dictionary.about();
 /// assert_eq!("libchewing default", about.name);
 /// assert_eq!("Copyright (c) 2022 libchewing Core Team", about.copyright);
@@ -233,12 +224,10 @@ impl Display for Phrase {
 ///
 /// # Examples
 ///
-/// ```
-/// use chewing::{dictionary::{Dictionary, LookupStrategy, TrieBuf}, syl, zhuyin::Bopomofo};
+/// ```no_run
+/// use chewing::{dictionary::{Dictionary, LookupStrategy, Trie}, syl, zhuyin::Bopomofo};
 ///
-/// let dict = TrieBuf::from([
-///     (vec![syl![Bopomofo::C, Bopomofo::E, Bopomofo::TONE4]], vec![("測", 100)]),
-/// ]);
+/// # let dict = Trie::new(&[][..]).unwrap();
 ///
 /// for phrase in dict.lookup(
 ///     &[syl![Bopomofo::C, Bopomofo::E, Bopomofo::TONE4]], LookupStrategy::Standard
@@ -253,12 +242,10 @@ pub type Phrases<'a> = Box<dyn Iterator<Item = Phrase> + 'a>;
 ///
 /// # Examples
 ///
-/// ```
-/// use chewing::{dictionary::{Dictionary, TrieBuf}, syl, zhuyin::Bopomofo};
+/// ```no_run
+/// use chewing::{dictionary::{Dictionary, Trie}, syl, zhuyin::Bopomofo};
 ///
-/// let dict = TrieBuf::from([
-///     (vec![syl![Bopomofo::C, Bopomofo::E, Bopomofo::TONE4]], vec![("測", 100)]),
-/// ]);
+/// # let dict = Trie::new(&[][..]).unwrap();
 ///
 /// for (syllables, phrase) in dict.entries() {
 ///     for bopomofos in syllables {
@@ -286,26 +273,6 @@ pub enum LookupStrategy {
 /// This is the main dictionary trait. For more about the concept of
 /// dictionaries generally, please see the [module-level
 /// documentation][crate::dictionary].
-///
-/// # Examples
-///
-/// ```
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-///
-/// use chewing::{dictionary::{Dictionary, LookupStrategy, TrieBuf}, syl, zhuyin::Bopomofo};
-///
-/// let mut dict = TrieBuf::new_in_memory();
-/// dict.add_phrase(&[syl![Bopomofo::C, Bopomofo::E, Bopomofo::TONE4]], ("測", 100).into())?;
-///
-/// for phrase in dict.lookup(
-///     &[syl![Bopomofo::C, Bopomofo::E, Bopomofo::TONE4]], LookupStrategy::Standard
-/// ) {
-///     assert_eq!("測", phrase.as_str());
-///     assert_eq!(100, phrase.freq());
-/// }
-/// # Ok(())
-/// # }
-/// ```
 pub trait Dictionary: Debug {
     /// Returns all phrases matched by the syllables.
     ///
@@ -337,20 +304,6 @@ pub trait Dictionary: Debug {
     ///
     /// For more about the concept of dictionaries generally, please see the
     /// [module-level documentation][crate::dictionary].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///
-    /// use chewing::{dictionary::{Dictionary, TrieBuf}, syl, zhuyin::Bopomofo};
-    ///
-    /// let mut dict = TrieBuf::new_in_memory();
-    /// dict.add_phrase(&[syl![Bopomofo::C, Bopomofo::E, Bopomofo::TONE4]], ("測", 100).into())?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    /// TODO: doc
     fn add_phrase(
         &mut self,
         _syllables: &[Syllable],

@@ -1,8 +1,11 @@
+#![allow(deprecated)]
+
 use std::{convert::Infallible, fmt::Display, str::FromStr};
 
 /// The intended usage of the dictionary.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[deprecated]
 pub enum DictionaryUsage {
     /// Default value
     #[default]

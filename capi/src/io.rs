@@ -12,7 +12,7 @@ use std::{
 
 use chewing::{
     conversion::{ChewingEngine, FuzzyChewingEngine, Interval, SimpleEngine, Symbol},
-    dictionary::{DEFAULT_DICT_NAMES, LookupStrategy},
+    dictionary::LookupStrategy,
     editor::{
         BasicEditor, CharacterForm, ConversionEngineKind, Editor, EditorKeyBehavior, LanguageMode,
         UserPhraseAddDirection,
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn chewing_new2(
 pub unsafe extern "C" fn chewing_new3(
     syspath: *const c_char,
     userpath: *const c_char,
-    enabled_dicts: *const c_char,
+    _enabled_dicts: *const c_char,
     logger_fn: Option<
         unsafe extern "C" fn(data: *mut c_void, level: c_int, fmt: *const c_char, ...),
     >,
@@ -170,15 +170,6 @@ pub unsafe extern "C" fn chewing_new3(
 ) -> *mut ChewingContext {
     let _ = crate::logger::init();
     let _logger_guard = init_scoped_logging(logger_fn, logger_data);
-    let mut dict_names: Vec<String> = DEFAULT_DICT_NAMES.iter().map(|&n| n.to_owned()).collect();
-    if !enabled_dicts.is_null() {
-        if let Ok(enabled_dicts) = unsafe { CStr::from_ptr(enabled_dicts).to_str() } {
-            dict_names = enabled_dicts
-                .split(",")
-                .map(|n| n.trim().to_owned())
-                .collect();
-        }
-    }
     let syspath = if syspath.is_null() {
         None
     } else {
