@@ -17,7 +17,7 @@ pub struct Decoder {
     pub lm: StaticLm,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Hypothesis {
     pub edges: Vec<Edge>,
     pub cost: f64,
@@ -274,4 +274,135 @@ where
         }
     }
     h
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        conversion::{Hypothesis, WordLattice, decoder::find_k_paths, word_lattice::Edge},
+        model::{Surface, WordId},
+    };
+
+    #[test]
+    fn simple_shortest_path() {
+        let lattice = WordLattice {
+            len: 2,
+            edges: vec![
+                vec![
+                    Edge {
+                        start: 0,
+                        end: 1,
+                        surface: Surface::Word(WordId(1)),
+                        boost: 0,
+                    },
+                    Edge {
+                        start: 0,
+                        end: 2,
+                        surface: Surface::Word(WordId(3)),
+                        boost: 0,
+                    },
+                ],
+                vec![Edge {
+                    start: 1,
+                    end: 2,
+                    surface: Surface::Word(WordId(2)),
+                    boost: 0,
+                }],
+            ],
+        };
+
+        let cost_fn = |_w1, _w2, _b| 1.0;
+
+        assert_eq!(
+            vec![Hypothesis {
+                edges: vec![Edge {
+                    start: 0,
+                    end: 2,
+                    surface: Surface::Word(WordId(3)),
+                    boost: 0,
+                },],
+                cost: 1.0
+            }],
+            find_k_paths(1, &lattice, cost_fn)
+        );
+    }
+
+    #[test]
+    fn multi_edge_shortest_path() {
+        let lattice = WordLattice {
+            len: 2,
+            edges: vec![
+                vec![
+                    Edge {
+                        start: 0,
+                        end: 1,
+                        surface: Surface::Word(WordId(1)),
+                        boost: -1,
+                    },
+                    Edge {
+                        start: 0,
+                        end: 1,
+                        surface: Surface::Word(WordId(4)),
+                        boost: -2,
+                    },
+                    Edge {
+                        start: 0,
+                        end: 2,
+                        surface: Surface::Word(WordId(3)),
+                        boost: -3,
+                    },
+                ],
+                vec![Edge {
+                    start: 1,
+                    end: 2,
+                    surface: Surface::Word(WordId(2)),
+                    boost: -1,
+                }],
+            ],
+        };
+
+        let cost_fn = |_w1, _w2, b| -(b as f64);
+
+        assert_eq!(
+            vec![Hypothesis {
+                edges: vec![
+                    Edge {
+                        start: 0,
+                        end: 1,
+                        surface: Surface::Word(WordId(1)),
+                        boost: -1,
+                    },
+                    Edge {
+                        start: 1,
+                        end: 2,
+                        surface: Surface::Word(WordId(2)),
+                        boost: -1,
+                    }
+                ],
+                cost: 2.0
+            }],
+            find_k_paths(1, &lattice, cost_fn)
+        );
+    }
+
+    #[test]
+    fn decode_empty_lattice() {
+        let lattice = WordLattice {
+            len: 0,
+            edges: vec![],
+        };
+
+        assert_eq!(
+            vec![Hypothesis {
+                edges: vec![Edge {
+                    start: 0,
+                    end: 0,
+                    surface: Surface::None,
+                    boost: 0
+                }],
+                cost: 0.0
+            }],
+            find_k_paths(1, &lattice, |_, _, _| 1.0)
+        );
+    }
 }
