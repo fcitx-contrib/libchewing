@@ -273,6 +273,7 @@ impl Editor {
 
             let word_lattice_builder = WordLatticeBuilder {
                 dict: composite_dict.clone(),
+                lookup_strategy: LookupStrategy::Standard,
             };
 
             let decoder = Decoder { lm };
@@ -281,7 +282,6 @@ impl Editor {
                 word_lattice_builder,
                 decoder: decoder.clone(),
                 string_table: string_table.clone(),
-                lookup_strategy: LookupStrategy::Standard,
             });
 
             let abbrev = AbbrevTable::new();
@@ -1341,34 +1341,34 @@ impl State for EnteringSyllable {
                 match key_behavior {
                     KeyBehavior::Absorb => self.spin_absorb(),
                     KeyBehavior::Fuzzy(syl) => {
-                        // if !shared
-                        //     .dict
-                        //     .lookup(&[syl], shared.options.lookup_strategy)
-                        //     .is_empty()
-                        // {
-                        //     shared.com.insert(Symbol::from(syl));
-                        // }
+                        if !shared
+                            .dict
+                            .lookup(&[syl], shared.options.lookup_strategy)
+                            .is_empty()
+                        {
+                            shared.com.insert(Symbol::from(syl));
+                        }
                         self.spin_absorb()
                     }
                     KeyBehavior::Commit => {
-                        // if !shared
-                        //     .dict
-                        //     .lookup(&[shared.syl.read()], shared.options.lookup_strategy)
-                        //     .is_empty()
-                        // {
-                        shared.com.insert(Symbol::from(shared.syl.read()));
-                        shared.syl.clear();
-                        //     if shared.options.conversion_engine
-                        //         == ConversionEngineKind::SimpleEngine
-                        //     {
-                        //         self.start_selecting_simple_engine(shared)
-                        //     } else {
-                        //         self.start_entering()
-                        //     }
-                        // } else {
-                        shared.syl.clear();
-                        self.start_entering()
-                        // }
+                        if !shared
+                            .dict
+                            .lookup(&[shared.syl.read()], shared.options.lookup_strategy)
+                            .is_empty()
+                        {
+                            shared.com.insert(Symbol::from(shared.syl.read()));
+                            shared.syl.clear();
+                            if shared.options.conversion_engine
+                                == ConversionEngineKind::SimpleEngine
+                            {
+                                self.start_selecting_simple_engine(shared)
+                            } else {
+                                self.start_entering()
+                            }
+                        } else {
+                            shared.syl.clear();
+                            self.start_entering()
+                        }
                     }
                     _ => self.spin_bell(),
                 }
@@ -1758,14 +1758,16 @@ impl EditorBuilder {
             self.user_dict.clone(),
         );
 
-        let word_lattice_builder = WordLatticeBuilder { dict: dict.clone() };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict: dict.clone(),
+            lookup_strategy: self.lookup_strategy,
+        };
 
         let decoder = Decoder { lm: self.lm };
         let conversion_engine = Box::new(ChewingEngine {
             word_lattice_builder,
             decoder: decoder.clone(),
             string_table: self.string_table.clone(),
-            lookup_strategy: self.lookup_strategy,
         });
 
         Editor::new(

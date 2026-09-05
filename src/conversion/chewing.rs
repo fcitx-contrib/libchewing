@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use super::{Composition, ConversionEngine, Gap, Interval, Outcome};
 use crate::{
     conversion::{Decoder, WordLatticeBuilder},
-    dictionary::{LookupStrategy, StringTable},
+    dictionary::StringTable,
     model::Surface,
 };
 
@@ -13,7 +13,6 @@ pub struct ChewingEngine {
     pub word_lattice_builder: WordLatticeBuilder,
     pub decoder: Decoder,
     pub string_table: StringTable,
-    pub lookup_strategy: LookupStrategy,
 }
 
 impl ChewingEngine {
@@ -137,14 +136,16 @@ mod tests {
     fn convert_simple_chinese_composition() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder { dict };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict,
+            lookup_strategy: LookupStrategy::Standard,
+        };
         let engine = ChewingEngine {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
             },
             string_table,
-            lookup_strategy: LookupStrategy::Standard,
         };
         let mut composition = Composition::new();
         for sym in [
@@ -186,14 +187,16 @@ mod tests {
     fn convert_chinese_composition_with_breaks() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder { dict };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict,
+            lookup_strategy: LookupStrategy::Standard,
+        };
         let engine = ChewingEngine {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
             },
             string_table,
-            lookup_strategy: LookupStrategy::Standard,
         };
         let mut composition = Composition::new();
         for sym in [
@@ -249,14 +252,16 @@ mod tests {
     fn convert_chinese_composition_with_good_selection() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder { dict };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict,
+            lookup_strategy: LookupStrategy::Standard,
+        };
         let engine = ChewingEngine {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
             },
             string_table: string_table.clone(),
-            lookup_strategy: LookupStrategy::Standard,
         };
         let mut composition = Composition::new();
         for sym in [
@@ -304,14 +309,16 @@ mod tests {
     fn convert_chinese_composition_with_substring_selection() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder { dict };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict,
+            lookup_strategy: LookupStrategy::Standard,
+        };
         let engine = ChewingEngine {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
             },
             string_table: string_table.clone(),
-            lookup_strategy: LookupStrategy::Standard,
         };
         let mut composition = Composition::new();
         for sym in [
@@ -342,14 +349,16 @@ mod tests {
     fn multiple_single_word_selection() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder { dict };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict,
+            lookup_strategy: LookupStrategy::Standard,
+        };
         let engine = ChewingEngine {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
             },
             string_table: string_table.clone(),
-            lookup_strategy: LookupStrategy::Standard,
         };
         let mut composition = Composition::new();
         for sym in [
@@ -395,14 +404,16 @@ mod tests {
     fn convert_cycle_alternatives() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder { dict };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict,
+            lookup_strategy: LookupStrategy::Standard,
+        };
         let engine = ChewingEngine {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
             },
             string_table: string_table.clone(),
-            lookup_strategy: LookupStrategy::Standard,
         };
         let mut composition = Composition::new();
         for sym in [
@@ -475,14 +486,16 @@ mod tests {
     fn convert_collapses_equal_text_resegmentations() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder { dict };
+        let word_lattice_builder = WordLatticeBuilder {
+            dict,
+            lookup_strategy: LookupStrategy::Standard,
+        };
         let engine = ChewingEngine {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
             },
             string_table: string_table.clone(),
-            lookup_strategy: LookupStrategy::Standard,
         };
         let mut composition = Composition::new();
         for _ in 0..80 {

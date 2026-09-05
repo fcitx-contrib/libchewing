@@ -184,6 +184,8 @@ impl Syllable {
     }
     /// Returns the `Syllable` encoded in a u16 integer.
     ///
+    /// There are 21 initials, 3 medial, 13 rimes, 5 tones.
+    ///
     /// The data layout used:
     ///
     /// ```text
@@ -511,6 +513,8 @@ macro_rules! syl {
 
 #[cfg(test)]
 mod test {
+
+    use std::num::NonZeroU16;
 
     use super::{Bopomofo, Syllable};
 

@@ -11,7 +11,7 @@ use std::{
 };
 
 use chewing::{
-    conversion::{ChewingEngine, FuzzyChewingEngine, Interval, SimpleEngine, Symbol},
+    conversion::{ChewingEngine, Interval, SimpleEngine, Symbol},
     dictionary::LookupStrategy,
     editor::{
         BasicEditor, CharacterForm, ConversionEngineKind, Editor, EditorKeyBehavior, LanguageMode,

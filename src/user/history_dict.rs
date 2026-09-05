@@ -6,6 +6,7 @@ use std::{
     collections::BTreeMap,
     fs::File,
     io::{BufRead, BufReader, Write},
+    ops::Bound::{Excluded, Included},
     path::Path,
     sync::{Arc, RwLock},
 };
@@ -212,25 +213,44 @@ impl HistoryDict {
     pub(crate) fn lookup(
         &self,
         syllables: &[Syllable],
-        _strategy: LookupStrategy,
+        strategy: LookupStrategy,
     ) -> TinyVec<[(WordId, i32); 3]> {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire HistoryDict reader lock");
-        // TODO: support prefix lookup
-        lock.records
-            .get(syllables)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .map(|e| {
-                        let count = true_count(lock.half_life, lock.generation, e.seen, e.epoch);
-                        (e.wid, count as i32)
+        match strategy {
+            LookupStrategy::Standard => lock
+                .records
+                .get(syllables)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .map(|e| {
+                            let count =
+                                true_count(lock.half_life, lock.generation, e.seen, e.epoch);
+                            (e.wid, count as i32)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            LookupStrategy::FuzzyPartialPrefix => {
+                let mut end = syllables.to_vec();
+                // NB: relies on the syllable encoding to
+                // ensure Syllable::EMPTY is greater than all real syllables.
+                end.push(Syllable::new());
+                lock.records
+                    .range::<[Syllable], _>((Included(syllables), Excluded(end.as_slice())))
+                    .flat_map(|(_, entries)| {
+                        entries.iter().map(|e| {
+                            let count =
+                                true_count(lock.half_life, lock.generation, e.seen, e.epoch);
+                            (e.wid, count as i32)
+                        })
                     })
                     .collect()
-            })
-            .unwrap_or_default()
+            }
+        }
     }
 }
 

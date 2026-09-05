@@ -12,6 +12,7 @@ use crate::{
 #[derive(Debug)]
 pub struct WordLatticeBuilder {
     pub dict: CompositeDict,
+    pub lookup_strategy: LookupStrategy,
 }
 
 #[derive(Debug)]
@@ -93,7 +94,7 @@ impl WordLatticeBuilder {
 
     fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Surface, i32)> {
         self.dict
-            .lookup(syllables, LookupStrategy::Standard)
+            .lookup(syllables, self.lookup_strategy)
             .into_iter()
             .map(|(w, b)| (Surface::Word(w), b))
             .collect()
