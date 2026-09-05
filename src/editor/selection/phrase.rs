@@ -1,8 +1,8 @@
-use std::cmp::{Reverse, min};
+use std::cmp::min;
 
 use crate::{
     conversion::{Composition, Gap, Interval},
-    dictionary::{CompositeDict, Dictionary, Layered, LookupStrategy},
+    dictionary::{CompositeDict, LookupStrategy},
     editor::{EditorError, EditorErrorKind, SharedState},
     model::WordId,
     zhuyin::Syllable,
@@ -263,14 +263,24 @@ impl PhraseSelector {
 
 #[cfg(test)]
 mod tests {
-    /*
     use super::PhraseSelector;
     use crate::{
         conversion::{Composition, Symbol},
-        dictionary::{LookupStrategy, TrieBuf},
+        dictionary::{CompositeDict, LookupStrategy, StringTable},
+        lm::StaticDict,
         syl,
+        user::{HistoryDict, UserDict},
         zhuyin::Bopomofo::*,
     };
+
+    fn make_dict(user_dict: UserDict) -> CompositeDict {
+        CompositeDict::new(
+            StaticDict::new(),
+            StaticDict::new(),
+            HistoryDict::new(StringTable::new()),
+            user_dict,
+        )
+    }
 
     #[test]
     fn init_when_cursor_end_of_buffer_syllable() {
@@ -284,8 +294,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
 
         assert_eq!(0, sel.begin);
         assert_eq!(1, sel.end);
@@ -304,8 +315,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
     }
 
     #[test]
@@ -320,8 +332,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
 
         assert_eq!(0, sel.begin);
         assert_eq!(1, sel.end);
@@ -340,8 +353,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
     }
 
     #[test]
@@ -386,5 +400,4 @@ mod tests {
         assert_eq!(1, sel.after_previous_break_point(1));
         assert_eq!(1, sel.after_previous_break_point(2));
     }
-    */
 }
