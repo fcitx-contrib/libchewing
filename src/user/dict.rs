@@ -15,7 +15,7 @@ use scoped_error::{expect_error, impl_context_error};
 use tinyvec::TinyVec;
 
 use crate::{
-    dictionary::{LookupStrategy, StringTable},
+    dictionary::{LookupStrategy, Phrase, StringTable},
     model::WordId,
     zhuyin::{Syllable, SyllableVec, parse_syllable_vec},
 };
@@ -35,7 +35,7 @@ struct UserDictInner {
     records: BTreeMap<SyllableVec, Vec<UserDictEntry>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct UserDictEntry {
     wid: WordId,
     boost: i32,
@@ -219,6 +219,21 @@ impl UserDict {
                     .collect()
             }
         }
+    }
+    pub fn entries(&self) -> Box<dyn Iterator<Item = (Vec<Syllable>, Phrase)> + '_> {
+        let lock = self
+            .inner
+            .read()
+            .expect("Unable to acquire UserDict reader lock");
+        Box::new(lock.records.clone().into_iter().flat_map(move |(k, v)| {
+            let st = lock.string_table.clone();
+            v.into_iter().map(move |ent| {
+                (
+                    k.to_vec(),
+                    Phrase::new(st.get_text(ent.wid).unwrap(), ent.boost),
+                )
+            })
+        }))
     }
 }
 

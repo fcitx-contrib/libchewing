@@ -6,12 +6,14 @@ use std::{
     error::Error,
     fmt::{Debug, Display},
     fs::{self, File},
-    io::BufReader,
+    io::{BufReader, BufWriter},
     mem,
+    path::PathBuf,
 };
 
 use log::{debug, error, info, warn};
 use scoped_error::{ErrorExt, expect_error, impl_context_error};
+use tempfile::NamedTempFile;
 
 pub use self::{abbrev::AbbrevTable, selection::symbol::SymbolSelector};
 use self::{
@@ -155,7 +157,7 @@ pub struct Editor {
 pub(crate) struct SharedState {
     // static_words_path: PathBuf,
     // static_dict_path: PathBuf,
-    // user_datadir: Option<PathBuf>,
+    user_datadir: Option<PathBuf>,
     // static_words: StringTable,
     // static_dict: StaticDict,
     com: CompositionEditor,
@@ -219,7 +221,9 @@ impl Editor {
                 }
             }
 
-            if let Some(vp) = sp.user_versioned_path() {
+            let user_datadir = sp.user_versioned_path();
+
+            if let Some(vp) = &user_datadir {
                 fs::create_dir_all(vp)?;
             }
 
@@ -291,6 +295,7 @@ impl Editor {
             };
 
             let editor = Editor::new(
+                user_datadir,
                 conversion_engine,
                 string_table,
                 composite_dict,
@@ -305,6 +310,7 @@ impl Editor {
     }
 
     pub fn new(
+        user_datadir: Option<PathBuf>,
         conv: Box<dyn ConversionEngine>,
         string_table: StringTable,
         dict: CompositeDict,
@@ -316,6 +322,7 @@ impl Editor {
     ) -> Editor {
         Editor {
             shared: SharedState {
+                user_datadir,
                 com: CompositionEditor::default(),
                 syl: Box::new(Standard::new()),
                 conv,
@@ -654,6 +661,29 @@ impl Editor {
     pub fn notification(&self) -> &str {
         &self.shared.notice_buffer
     }
+    pub fn flush(&self) -> Result<(), EditorError> {
+        if let Some(ud) = &self.shared.user_datadir {
+            let user_dict_path = ud.join("user_dict.csv");
+            let hist_dict_path = ud.join("history_dict.bin");
+            let temp = NamedTempFile::new_in(&ud)
+                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+            self.shared
+                .user_dict
+                .to_writer(BufWriter::new(&temp))
+                .unwrap();
+            temp.persist(user_dict_path)
+                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+            let temp = NamedTempFile::new_in(&ud)
+                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+            self.shared
+                .hist_dict
+                .to_writer(BufWriter::new(&temp))
+                .unwrap();
+            temp.persist(hist_dict_path)
+                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+        }
+        Ok(())
+    }
 }
 
 impl SharedState {
@@ -745,7 +775,7 @@ impl SharedState {
             .take(end - start)
             .collect::<String>();
         if self
-            .dict
+            .user_dict
             .lookup(&syllables, LookupStrategy::Standard)
             .into_iter()
             .any(|(wid, _)| self.string_table.get_text(wid).is_some_and(|s| s == phrase))
@@ -774,8 +804,9 @@ impl SharedState {
             ))
             .or_raise(|| EditorError::new(EditorErrorKind::InvalidState));
         }
+        let wid = self.string_table.intern(phrase);
         let phrases = self.user_dict.lookup(syllables, LookupStrategy::Standard);
-        if phrases.is_empty() {
+        if !phrases.iter().any(|p| p.0 == wid) {
             self.user_dict.insert(syllables, phrase);
             return Ok(());
         }
@@ -969,6 +1000,7 @@ impl BasicEditor for Editor {
         if self.shared.dirty_level > DIRTY_THRESHOLD {
             // let _ = self.shared.dict.reopen();
             // let _ = self.shared.dict.flush();
+            let _ = self.flush();
             self.shared.dirty_level = 0;
         }
         self.shared.last_key_behavior
@@ -1804,6 +1836,7 @@ impl EditorBuilder {
         });
 
         Editor::new(
+            None,
             conversion_engine,
             self.string_table,
             dict,

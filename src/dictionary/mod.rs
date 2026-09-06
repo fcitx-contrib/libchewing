@@ -87,7 +87,7 @@ pub struct DictionaryInfo {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Phrase {
     text: Box<str>,
-    freq: u32,
+    freq: i32,
     last_used: Option<u64>,
 }
 
@@ -101,7 +101,7 @@ impl Phrase {
     ///
     /// let phrase = Phrase::new("新", 1);
     /// ```
-    pub fn new<S>(phrase: S, freq: u32) -> Phrase
+    pub fn new<S>(phrase: S, freq: i32) -> Phrase
     where
         S: Into<Box<str>>,
     {
@@ -127,7 +127,7 @@ impl Phrase {
     ///
     /// assert_eq!(100, phrase.freq());
     /// ```
-    pub fn freq(&self) -> u32 {
+    pub fn freq(&self) -> i32 {
         self.freq
     }
     /// Returns the last time this phrase was selected as user phrase.
@@ -190,26 +190,26 @@ impl From<Phrase> for Box<str> {
     }
 }
 
-impl From<Phrase> for (String, u32) {
+impl From<Phrase> for (String, i32) {
     fn from(phrase: Phrase) -> Self {
         (phrase.text.into_string(), phrase.freq)
     }
 }
 
-impl<S> From<(S, u32)> for Phrase
+impl<S> From<(S, i32)> for Phrase
 where
     S: Into<Box<str>>,
 {
-    fn from(tuple: (S, u32)) -> Self {
+    fn from(tuple: (S, i32)) -> Self {
         Phrase::new(tuple.0, tuple.1)
     }
 }
 
-impl<S> From<(S, u32, u64)> for Phrase
+impl<S> From<(S, i32, u64)> for Phrase
 where
     S: Into<Box<str>>,
 {
-    fn from(tuple: (S, u32, u64)) -> Self {
+    fn from(tuple: (S, i32, u64)) -> Self {
         Phrase::new(tuple.0, tuple.1).with_time(tuple.2)
     }
 }

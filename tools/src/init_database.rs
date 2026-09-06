@@ -42,7 +42,7 @@ pub(crate) fn run(args: flags::InitDatabase) -> Result<()> {
     let delimiter = if args.csv { ',' } else { ' ' };
     let mut read_front_matter = true;
     let mut errors = vec![];
-    let mut phrase_rows: HashMap<String, Vec<(u32, usize)>> = HashMap::new();
+    let mut phrase_rows: HashMap<String, Vec<(i32, usize)>> = HashMap::new();
 
     for (line_num, line) in reader.lines().enumerate() {
         let line = line.context(error)?;
@@ -142,7 +142,7 @@ pub(crate) fn run(args: flags::InitDatabase) -> Result<()> {
     Ok(())
 }
 
-fn compute_and_print_length_prob(phrase_rows: &HashMap<String, Vec<(u32, usize)>>) {
+fn compute_and_print_length_prob(phrase_rows: &HashMap<String, Vec<(i32, usize)>>) {
     let mut d = 0u64;
     let mut len_type: HashMap<usize, usize> = HashMap::new();
     let mut n_aggregate = 0usize;
@@ -150,7 +150,7 @@ fn compute_and_print_length_prob(phrase_rows: &HashMap<String, Vec<(u32, usize)>
     let mut n_mixed_len = 0usize;
 
     for entries in phrase_rows.values() {
-        let freqs: Vec<u32> = entries.iter().map(|(f, _)| *f).collect();
+        let freqs: Vec<i32> = entries.iter().map(|(f, _)| *f).collect();
         let lens: HashSet<usize> = entries.iter().map(|(_, n)| *n).collect();
 
         if lens.len() > 1 {
@@ -165,7 +165,7 @@ fn compute_and_print_length_prob(phrase_rows: &HashMap<String, Vec<(u32, usize)>
             if entries.len() > 1 {
                 n_per_reading += 1;
             }
-            freqs.iter().map(|&f| f as u64).sum::<u64>() as u32
+            freqs.iter().map(|&f| f as u64).sum::<u64>() as i32
         };
 
         d += phrase_freq as u64;
@@ -220,14 +220,14 @@ fn compute_and_print_length_prob(phrase_rows: &HashMap<String, Vec<(u32, usize)>
     }
 }
 
-fn parse_line(delimiter: char, line: &str, fix: bool) -> Result<(Vec<Syllable>, &str, u32)> {
+fn parse_line(delimiter: char, line: &str, fix: bool) -> Result<(Vec<Syllable>, &str, i32)> {
     let phrase = line
         .split(delimiter)
         .find(|s| !s.is_empty())
         .context("failed to parse phrase")?
         .trim_matches('"');
 
-    let freq: u32 = line
+    let freq: i32 = line
         .split(delimiter)
         .filter(|s| !s.is_empty())
         .nth(1)

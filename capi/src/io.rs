@@ -98,6 +98,30 @@ unsafe fn str_from_ptr_with_nul<'a>(ptr: *const c_char) -> Option<&'a str> {
         .and_then(|data| str::from_utf8(unsafe { mem::transmute::<&[c_char], &[u8]>(data) }).ok())
 }
 
+macro_rules! as_mut_or_return {
+    ($ctx:expr) => {
+        match unsafe { $ctx.as_mut() } {
+            Some(ctx) => ctx,
+            None => return,
+        }
+    };
+    ($ctx:expr, $ret:expr) => {
+        match unsafe { $ctx.as_mut() } {
+            Some(ctx) => ctx,
+            None => return $ret,
+        }
+    };
+}
+
+macro_rules! as_ref_or_return {
+    ($ctx:expr, $ret:expr) => {
+        match unsafe { $ctx.as_ref() } {
+            Some(ctx) => ctx,
+            None => return $ret,
+        }
+    };
+}
+
 /// Creates a new instance of the Chewing IM.
 ///
 /// The return value is a pointer to the new Chewing IM instance.
@@ -238,6 +262,9 @@ pub unsafe extern "C" fn chewing_get_defaultDictionaryNames() -> *const c_char {
 /// This function should be called with valid pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chewing_delete(ctx: *mut ChewingContext) {
+    let ctx_ref = as_mut_or_return!(ctx);
+    let _ = ctx_ref.editor.flush();
+
     if !ctx.is_null() {
         info!("Destroying context {ctx:?}");
         drop(unsafe { Box::from_raw(ctx) })
@@ -274,30 +301,6 @@ pub unsafe extern "C" fn chewing_free(ptr: *mut c_void) {
             }
         };
     }
-}
-
-macro_rules! as_mut_or_return {
-    ($ctx:expr) => {
-        match unsafe { $ctx.as_mut() } {
-            Some(ctx) => ctx,
-            None => return,
-        }
-    };
-    ($ctx:expr, $ret:expr) => {
-        match unsafe { $ctx.as_mut() } {
-            Some(ctx) => ctx,
-            None => return $ret,
-        }
-    };
-}
-
-macro_rules! as_ref_or_return {
-    ($ctx:expr, $ret:expr) => {
-        match unsafe { $ctx.as_ref() } {
-            Some(ctx) => ctx,
-            None => return $ret,
-        }
-    };
 }
 
 /// Reset the context but keep all settings.
@@ -1253,7 +1256,7 @@ pub unsafe extern "C" fn chewing_userphrase_enumerate(ctx: *mut ChewingContext) 
     let ctx = as_mut_or_return!(ctx, ERROR);
     let _logger_guard = init_scoped_logging(ctx.logger_fn, ctx.logger_data);
 
-    // ctx.userphrase_iter = Some(ctx.editor.user_dict().entries().peekable());
+    ctx.userphrase_iter = Some(ctx.editor.user_dict().entries().peekable());
     OK
 }
 
