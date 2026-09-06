@@ -185,7 +185,7 @@ pub unsafe extern "C" fn chewing_new3(
             .map(|p| p.to_owned())
     };
     let kb_compat = KeyboardLayoutCompat::Default;
-    let editor = Editor::chewing(syspath, userpath).unwrap();
+    let editor = Editor::chewing(syspath, userpath).unwrap_or_else(|_| Editor::fallback());
     let context = Box::new(ChewingContext {
         kb_compat,
         keymap: &QWERTY_MAP,

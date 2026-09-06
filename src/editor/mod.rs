@@ -337,6 +337,10 @@ impl Editor {
         }
     }
 
+    pub fn fallback() -> Editor {
+        EditorBuilder::new().build()
+    }
+
     pub fn set_syllable_editor(&mut self, syl: Box<dyn SyllableEditor>) {
         self.shared.syl = syl;
         info!("Set syllable editor: {}", self.shared.syl);
