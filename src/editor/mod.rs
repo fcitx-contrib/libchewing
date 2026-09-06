@@ -281,8 +281,14 @@ impl Editor {
                 string_table: string_table.clone(),
             });
 
-            let abbrev = AbbrevTable::new();
-            let sym_sel = SymbolSelector::new(b"".as_slice())?;
+            let abbrev = match sp.find_file("swkb.dat") {
+                Some(swkb_dat) => AbbrevTable::open(swkb_dat)?,
+                None => AbbrevTable::new(),
+            };
+            let sym_sel = match sp.find_file("symbols.dat") {
+                Some(symbols_dat) => SymbolSelector::open(symbols_dat)?,
+                None => SymbolSelector::new(b"".as_slice())?,
+            };
 
             let editor = Editor::new(
                 conversion_engine,
