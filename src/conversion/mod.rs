@@ -65,9 +65,6 @@ impl Interval {
     fn contains_range(&self, start: usize, end: usize) -> bool {
         self.start <= start && self.end >= end
     }
-    fn is_contained_by(&self, start: usize, end: usize) -> bool {
-        start <= self.start && end >= self.end
-    }
     /// Whether the interval covers the part of the other interval.
     pub fn intersect(&self, other: &Interval) -> bool {
         self.intersect_range(other.start, other.end)

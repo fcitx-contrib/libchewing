@@ -104,6 +104,8 @@ impl<W: Write> BareEncoder<W> {
             Ok(())
         })
     }
+    // will use this for unigram
+    #[allow(unused)]
     pub(crate) fn write_u8(&mut self, value: u8) -> Result<(), BareError> {
         expect_error("Failed to encode u8", || {
             self.writer.write_byte(value)?;

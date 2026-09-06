@@ -662,25 +662,26 @@ impl Editor {
         &self.shared.notice_buffer
     }
     pub fn flush(&self) -> Result<(), EditorError> {
+        // FIXME error handling
         if let Some(ud) = &self.shared.user_datadir {
             let user_dict_path = ud.join("user_dict.csv");
             let hist_dict_path = ud.join("history_dict.bin");
             let temp = NamedTempFile::new_in(&ud)
-                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
             self.shared
                 .user_dict
                 .to_writer(BufWriter::new(&temp))
                 .unwrap();
             temp.persist(user_dict_path)
-                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
             let temp = NamedTempFile::new_in(&ud)
-                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
             self.shared
                 .hist_dict
                 .to_writer(BufWriter::new(&temp))
                 .unwrap();
             temp.persist(hist_dict_path)
-                .map_err(|e| EditorError::new(EditorErrorKind::InvalidState))?;
+                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
         }
         Ok(())
     }

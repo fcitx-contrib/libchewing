@@ -4,7 +4,7 @@ use std::{
     env,
     ffi::OsStr,
     fs,
-    io::{self, ErrorKind},
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -140,23 +140,6 @@ impl SearchPath {
     }
 }
 
-pub(crate) fn custom_search_path_and_env_var(sys_path: &str) -> String {
-    let mut paths = vec![];
-    if let Some(user_datadir) = data_dir() {
-        paths.push(
-            user_datadir
-                .join(DICT_FOLDER)
-                .to_string_lossy()
-                .into_owned(),
-        );
-        paths.push(user_datadir.to_string_lossy().into_owned());
-    }
-    paths.push(sys_path.to_string());
-    let chewing_path = paths.join(&SEARCH_PATH_SEP.to_string());
-    debug!("Using search path: {}", chewing_path);
-    chewing_path
-}
-
 pub fn search_path_from_env_var() -> String {
     let mut paths = vec![];
     if let Some(user_datadir) = data_dir() {
@@ -180,26 +163,6 @@ pub fn search_path_from_env_var() -> String {
     let chewing_path = paths.join(&SEARCH_PATH_SEP.to_string());
     debug!("Using search path: {}", chewing_path);
     chewing_path
-}
-
-pub(crate) fn find_path_by_files(search_path: &str, files: &[&str]) -> Result<PathBuf, io::Error> {
-    for path in search_path.split(SEARCH_PATH_SEP) {
-        let prefix = Path::new(path).to_path_buf();
-        debug!("Search files {:?} in {}", files, prefix.display());
-        if files
-            .iter()
-            .map(|it| {
-                let mut path = prefix.clone();
-                path.push(it);
-                path
-            })
-            .all(|it| file_exists(&it))
-        {
-            debug!("Found {:?} in {}", files, prefix.display());
-            return Ok(prefix);
-        }
-    }
-    Err(ErrorKind::NotFound.into())
 }
 
 pub fn find_files_by_ext(search_path: &str, exts: &[&str]) -> Vec<PathBuf> {

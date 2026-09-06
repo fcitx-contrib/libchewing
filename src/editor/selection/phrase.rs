@@ -1,7 +1,7 @@
 use std::cmp::min;
 
 use crate::{
-    conversion::{Composition, Gap, Interval},
+    conversion::{Composition, Gap},
     dictionary::{CompositeDict, LookupStrategy},
     editor::{ConversionEngineKind, EditorError, EditorErrorKind, SharedState},
     model::WordId,
@@ -254,15 +254,6 @@ impl PhraseSelector {
             return editor.decoder.rank(candidates);
         }
         candidates.into_iter().map(|(wid, _)| wid).collect()
-    }
-
-    pub(crate) fn interval(&self, phrase: impl Into<Box<str>>) -> Interval {
-        Interval {
-            start: self.begin,
-            end: self.end,
-            is_phrase: true,
-            text: phrase.into(),
-        }
     }
 }
 

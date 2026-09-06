@@ -1,4 +1,5 @@
 //! Systems and user phrase dictionaries.
+#![allow(deprecated)]
 
 use std::{
     any::Any,

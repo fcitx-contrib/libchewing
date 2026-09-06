@@ -47,15 +47,3 @@ impl<W> AsRef<W> for BareEncoder<W> {
 }
 
 impl_context_error!(BareError);
-
-impl BareError {
-    pub(crate) fn is_eof(&self) -> bool {
-        if let Some(src) = &self.source
-            && let Some(err) = src.downcast_ref::<std::io::Error>()
-            && err.kind() == std::io::ErrorKind::UnexpectedEof
-        {
-            return true;
-        }
-        false
-    }
-}

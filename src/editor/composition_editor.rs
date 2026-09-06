@@ -7,7 +7,7 @@ use std::{
 
 use log::warn;
 
-use crate::conversion::{Composition, Gap, Interval, Selection, Symbol};
+use crate::conversion::{Composition, Gap, Selection, Symbol};
 
 /// TODO
 #[derive(Debug, Default, Clone)]
