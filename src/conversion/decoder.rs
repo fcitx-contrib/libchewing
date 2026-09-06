@@ -2,7 +2,7 @@
 
 use std::{
     cmp::{Ordering, Reverse},
-    collections::{BTreeMap, BinaryHeap},
+    collections::BinaryHeap,
     ops::Neg,
 };
 
@@ -24,25 +24,55 @@ pub struct Hypothesis {
 }
 
 impl Decoder {
-    pub fn decoden(&self, lattice: &WordLattice, n: u8) -> Vec<Hypothesis> {
+    pub fn decoden(&self, mut lattice: WordLattice, n: u8) -> Vec<Hypothesis> {
         if lattice.edges.is_empty() {
             return vec![Hypothesis::default()];
         }
 
-        let paths = find_k_paths(n, lattice, |w1, w2, w2boost| {
+        // Prune
+        const KEEP_PER_SPAN: usize = 10;
+        for es in lattice.edges.iter_mut() {
+            if es.len() <= KEEP_PER_SPAN {
+                continue;
+            }
+            let mut ranked: Vec<_> = es
+                .iter()
+                .map(|e| {
+                    (
+                        e.end,
+                        OrderedF64(cost_fun(&self.lm, Surface::None, e.surface, e.boost)),
+                        *e,
+                    )
+                })
+                .collect();
+            // group by span end, cheapest-first within each span
+            ranked.sort_unstable_by_key(|&(end, cost, _)| (end, cost));
+
+            es.clear();
+            for group in ranked.chunk_by(|a, b| a.0 == b.0) {
+                es.extend(group.iter().take(KEEP_PER_SPAN).map(|&(_, _, e)| e));
+            }
+        }
+
+        let paths = find_k_paths(n, &lattice, |w1, w2, w2boost| {
             cost_fun(&self.lm, w1, w2, w2boost)
         });
 
         debug_assert!(!paths.is_empty());
         paths
     }
-    pub fn rank(&self, mut candidates: Vec<(WordId, i32)>) -> Vec<WordId> {
-        candidates.sort_by(|a, b| {
-            let cost_a = cost_fun(&self.lm, Surface::None, Surface::Word(a.0), a.1);
-            let cost_b = cost_fun(&self.lm, Surface::None, Surface::Word(b.0), b.1);
-            cost_a.partial_cmp(&cost_b).unwrap_or(Ordering::Equal)
-        });
-        candidates.into_iter().map(|(w, _)| w).collect()
+    pub fn rank(&self, candidates: Vec<(WordId, i32)>) -> Vec<WordId> {
+        let mut ranked: Vec<_> = candidates
+            .iter()
+            .map(|c| {
+                (
+                    OrderedF64(cost_fun(&self.lm, Surface::None, Surface::Word(c.0), c.1)),
+                    c.0,
+                )
+            })
+            .collect();
+        ranked.sort_unstable_by_key(|&(cost, _)| cost);
+        ranked.into_iter().map(|(_, w)| w).collect()
     }
 }
 
@@ -133,11 +163,9 @@ where
 {
     let h = future_cost(lattice, &cost_fn);
     let len = lattice.len;
-    let mut counter: BTreeMap<StateCoord, u8> = BTreeMap::new();
     let mut trails: Vec<(usize, Edge)> = vec![];
     let mut open = BinaryHeap::new();
 
-    counter.insert(StateCoord::default(), 0);
     trails.push((0, Edge::default()));
     open.push(Path {
         priority: Reverse(OrderedF64(h[0])),
@@ -149,13 +177,6 @@ where
     let mut results = Vec::with_capacity(k as usize);
 
     while let Some(path) = open.pop() {
-        let times = *counter.get(&path.front).expect("");
-        if times >= k {
-            continue;
-        } else {
-            counter.insert(path.front, times + 1);
-        }
-
         if path.front.curr.end as usize == len {
             results.push((reconstruct(&trails, path.tid), path.cost));
             if results.len() == k as usize {
@@ -170,19 +191,16 @@ where
 
         for e in &lattice.edges[path.front.curr.end as usize] {
             let cost = path.cost + cost_fn(path.front.curr.surface, e.surface, e.boost);
-            let front = StateCoord {
-                prev: path.front.curr.surface,
-                curr: *e,
-            };
-            counter.entry(front).or_insert(0);
-
             let tid = trails.len();
-            trails.push((path.tid, *e));
 
+            trails.push((path.tid, *e));
             open.push(Path {
                 priority: Reverse(OrderedF64(cost + h[e.end as usize])),
                 cost,
-                front,
+                front: StateCoord {
+                    prev: path.front.curr.surface,
+                    curr: *e,
+                },
                 tid,
             });
         }

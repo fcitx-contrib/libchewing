@@ -54,11 +54,12 @@ int main(int argc, char *argv[])
     chewing_set_KBType(ctx, chewing_KBStr2Num("KB_DEFAULT"));
 
     chewing_set_candPerPage(ctx, 9);
-    chewing_set_maxChiSymbolLen(ctx, 16);
+    chewing_set_maxChiSymbolLen(ctx, 40);
     chewing_set_addPhraseDirection(ctx, 1);
     chewing_set_selKey(ctx, selKey_define, 10);
     chewing_set_spaceAsSelection(ctx, 1);
     chewing_config_set_int(ctx, "chewing.auto_snapshot_selections", 0);
+    chewing_config_set_int(ctx, "chewing.conversion_engine", CHEWING_CONVERSION_ENGINE);
 
     while (1) {
         i = get_keystroke(get_char_from_fp, fp);

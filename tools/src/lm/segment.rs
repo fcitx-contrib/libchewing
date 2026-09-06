@@ -42,7 +42,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
                         return;
                     };
                     let lattice = WordLattice::from_str(&line, |s| string_table.get_wid(s));
-                    let hypotheses = decoder.decoden(&lattice, 1);
+                    let hypotheses = decoder.decoden(lattice, 1);
                     for hyp in hypotheses {
                         let mut segmented = String::new();
                         for (i, segstr) in hyp
