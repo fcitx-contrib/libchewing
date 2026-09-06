@@ -11,7 +11,7 @@ use std::{
 };
 
 use chewing::{
-    conversion::{ChewingEngine, Interval, SimpleEngine, Symbol},
+    conversion::{Interval, Symbol},
     dictionary::LookupStrategy,
     editor::{
         BasicEditor, CharacterForm, ConversionEngineKind, Editor, EditorKeyBehavior, LanguageMode,
@@ -520,24 +520,9 @@ pub unsafe extern "C" fn chewing_config_set_int(
         }
         "chewing.conversion_engine" => {
             options.conversion_engine = match value {
-                SIMPLE_CONVERSION_ENGINE => {
-                    // ctx.editor
-                    //     .set_conversion_engine(Box::new(SimpleEngine::new()));
-                    options.lookup_strategy = LookupStrategy::Standard;
-                    ConversionEngineKind::SimpleEngine
-                }
-                CHEWING_CONVERSION_ENGINE => {
-                    // ctx.editor
-                    //     .set_conversion_engine(Box::new(ChewingEngine::new()));
-                    options.lookup_strategy = LookupStrategy::Standard;
-                    ConversionEngineKind::ChewingEngine
-                }
-                FUZZY_CHEWING_CONVERSION_ENGINE => {
-                    // ctx.editor
-                    //     .set_conversion_engine(Box::new(FuzzyChewingEngine::new()));
-                    options.lookup_strategy = LookupStrategy::FuzzyPartialPrefix;
-                    ConversionEngineKind::FuzzyChewingEngine
-                }
+                SIMPLE_CONVERSION_ENGINE => ConversionEngineKind::SimpleEngine,
+                CHEWING_CONVERSION_ENGINE => ConversionEngineKind::ChewingEngine,
+                FUZZY_CHEWING_CONVERSION_ENGINE => ConversionEngineKind::FuzzyChewingEngine,
                 _ => return ERROR,
             }
         }

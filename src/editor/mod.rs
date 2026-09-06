@@ -21,8 +21,8 @@ use self::{
 };
 use crate::{
     conversion::{
-        ChewingEngine, ConversionEngine, Decoder, Interval, Outcome, Selection, Symbol,
-        WordLatticeBuilder, full_width_symbol_input, special_symbol_input,
+        ChewingEngine, ConversionEngine, Decoder, Interval, Outcome, Selection, SimpleEngine,
+        Symbol, WordLatticeBuilder, full_width_symbol_input, special_symbol_input,
     },
     dictionary::{CompositeDict, LookupStrategy, StringTable, UpdateDictionaryError},
     exn::{Exn, ResultExt},
@@ -76,7 +76,6 @@ pub struct EditorOptions {
     pub language_mode: LanguageMode,
     pub character_form: CharacterForm,
     pub user_phrase_add_dir: UserPhraseAddDirection,
-    pub lookup_strategy: LookupStrategy,
     pub conversion_engine: ConversionEngineKind,
     pub enable_fullwidth_toggle_key: bool,
     pub sort_candidates_by_frequency: bool,
@@ -97,8 +96,6 @@ impl Default for EditorOptions {
             language_mode: LanguageMode::Chinese,
             character_form: CharacterForm::Halfwidth,
             user_phrase_add_dir: UserPhraseAddDirection::Forward,
-            lookup_strategy: LookupStrategy::Standard,
-            // FIXME may be out of sync with the engine used
             conversion_engine: ConversionEngineKind::ChewingEngine,
             enable_fullwidth_toggle_key: true,
             sort_candidates_by_frequency: false,
@@ -371,6 +368,30 @@ impl Editor {
         update_op(&mut self.shared.options);
         if self.shared.options.language_mode != old.language_mode {
             self.cancel_entering_syllable();
+        }
+        if self.shared.options.conversion_engine != old.conversion_engine {
+            self.shared.conv = match self.shared.options.conversion_engine {
+                ConversionEngineKind::SimpleEngine => Box::new(SimpleEngine {
+                    string_table: self.shared.string_table.clone(),
+                    dict: self.shared.dict.clone(),
+                }),
+                ConversionEngineKind::ChewingEngine => Box::new(ChewingEngine {
+                    word_lattice_builder: WordLatticeBuilder {
+                        dict: self.shared.dict.clone(),
+                        lookup_strategy: LookupStrategy::Standard,
+                    },
+                    decoder: self.shared.decoder.clone(),
+                    string_table: self.shared.string_table.clone(),
+                }),
+                ConversionEngineKind::FuzzyChewingEngine => Box::new(ChewingEngine {
+                    word_lattice_builder: WordLatticeBuilder {
+                        dict: self.shared.dict.clone(),
+                        lookup_strategy: LookupStrategy::FuzzyPartialPrefix,
+                    },
+                    decoder: self.shared.decoder.clone(),
+                    string_table: self.shared.string_table.clone(),
+                }),
+            }
         }
     }
     pub fn entering_syllable(&self) -> bool {
@@ -1334,18 +1355,20 @@ impl State for EnteringSyllable {
                 self.start_entering()
             }
             _ => {
-                let key_behavior = match shared.options.lookup_strategy {
+                let lookup_strategy = match shared.options.conversion_engine {
+                    ConversionEngineKind::ChewingEngine | ConversionEngineKind::SimpleEngine => {
+                        LookupStrategy::Standard
+                    }
+                    ConversionEngineKind::FuzzyChewingEngine => LookupStrategy::FuzzyPartialPrefix,
+                };
+                let key_behavior = match lookup_strategy {
                     LookupStrategy::FuzzyPartialPrefix => shared.syl.fuzzy_key_press(ev),
                     LookupStrategy::Standard => shared.syl.key_press(ev),
                 };
                 match key_behavior {
                     KeyBehavior::Absorb => self.spin_absorb(),
                     KeyBehavior::Fuzzy(syl) => {
-                        if !shared
-                            .dict
-                            .lookup(&[syl], shared.options.lookup_strategy)
-                            .is_empty()
-                        {
+                        if !shared.dict.lookup(&[syl], lookup_strategy).is_empty() {
                             shared.com.insert(Symbol::from(syl));
                         }
                         self.spin_absorb()
@@ -1353,7 +1376,7 @@ impl State for EnteringSyllable {
                     KeyBehavior::Commit => {
                         if !shared
                             .dict
-                            .lookup(&[shared.syl.read()], shared.options.lookup_strategy)
+                            .lookup(&[shared.syl.read()], lookup_strategy)
                             .is_empty()
                         {
                             shared.com.insert(Symbol::from(shared.syl.read()));
@@ -1384,7 +1407,7 @@ impl Selecting {
 
         let mut sel = PhraseSelector::new(
             !editor.options.phrase_choice_rearward,
-            editor.options.lookup_strategy,
+            editor.options.conversion_engine,
             editor.com.to_composition(),
         );
         sel.init(editor.cursor(), &editor.dict);
@@ -1401,7 +1424,7 @@ impl Selecting {
 
         let mut sel = PhraseSelector::new(
             false,
-            editor.options.lookup_strategy,
+            editor.options.conversion_engine,
             editor.com.to_composition(),
         );
         sel.init_single_word(editor.cursor());
@@ -1568,7 +1591,7 @@ impl State for Selecting {
                 if sym.is_syllable() {
                     let mut sel = PhraseSelector::new(
                         !shared.options.phrase_choice_rearward,
-                        shared.options.lookup_strategy,
+                        shared.options.conversion_engine,
                         shared.com.to_composition(),
                     );
                     sel.init(shared.cursor(), &shared.dict);
@@ -1594,7 +1617,7 @@ impl State for Selecting {
                 if sym.is_syllable() {
                     let mut sel = PhraseSelector::new(
                         !shared.options.phrase_choice_rearward,
-                        shared.options.lookup_strategy,
+                        shared.options.conversion_engine,
                         shared.com.to_composition(),
                     );
                     sel.init(shared.cursor(), &shared.dict);

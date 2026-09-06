@@ -3,7 +3,7 @@ use std::cmp::min;
 use crate::{
     conversion::{Composition, Gap, Interval},
     dictionary::{CompositeDict, LookupStrategy},
-    editor::{EditorError, EditorErrorKind, SharedState},
+    editor::{ConversionEngineKind, EditorError, EditorErrorKind, SharedState},
     model::WordId,
     zhuyin::Syllable,
 };
@@ -21,7 +21,7 @@ pub(crate) struct PhraseSelector {
 impl PhraseSelector {
     pub(crate) fn new(
         forward_select: bool,
-        lookup_strategy: LookupStrategy,
+        conversion_engine: ConversionEngineKind,
         com: Composition,
     ) -> PhraseSelector {
         PhraseSelector {
@@ -29,7 +29,12 @@ impl PhraseSelector {
             end: com.len(),
             forward_select,
             orig: 0,
-            lookup_strategy,
+            lookup_strategy: match conversion_engine {
+                ConversionEngineKind::ChewingEngine | ConversionEngineKind::SimpleEngine => {
+                    LookupStrategy::Standard
+                }
+                ConversionEngineKind::FuzzyChewingEngine => LookupStrategy::FuzzyPartialPrefix,
+            },
             com,
         }
     }

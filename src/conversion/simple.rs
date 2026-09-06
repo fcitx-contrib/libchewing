@@ -6,8 +6,8 @@ use crate::{
 /// Simple engine does not perform any intelligent conversion.
 #[derive(Debug)]
 pub struct SimpleEngine {
-    string_table: StringTable,
-    dict: CompositeDict,
+    pub string_table: StringTable,
+    pub dict: CompositeDict,
 }
 
 impl SimpleEngine {
