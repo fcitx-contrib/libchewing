@@ -20,7 +20,7 @@ use scoped_error::{bail, expect_error, impl_context_error};
 
 use crate::{
     bare::{BareDecoder, BareEncoder},
-    model::WordId,
+    model::{WordId, WordOrig},
 };
 
 /// Controls how column indexes are stored in memory after loading.
@@ -177,7 +177,7 @@ impl StaticLm {
         })
     }
 
-    pub fn get(&self, row: u32, col: u32) -> Option<f64> {
+    fn get(&self, row: u32, col: u32) -> Option<f64> {
         match &self.inner.cols {
             ColStorage::Decoded(decoded) => self.get_eager(row, col, decoded),
             ColStorage::Varint {
@@ -185,6 +185,26 @@ impl StaticLm {
                 col_deltas,
             } => self.get_lazy(row, col, row_byte_offsets, col_deltas),
         }
+    }
+
+    const USER_FLOOR: f64 = -2.0;
+    const UNIGRAM_FLOOR: f64 = -20.0;
+
+    pub fn unigram(&self, wid: WordId) -> f64 {
+        let raw = self.get(0, wid.0).unwrap_or(f64::NEG_INFINITY);
+        let floor = if matches!(wid.orig(), WordOrig::User) {
+            Self::USER_FLOOR
+        } else {
+            Self::UNIGRAM_FLOOR
+        };
+        raw.max(floor)
+    }
+
+    pub fn bigram(&self, wid1: WordId, wid2: WordId) -> f64 {
+        if matches!(wid1.orig(), WordOrig::User) || matches!(wid2.orig(), WordOrig::User) {
+            return f64::NEG_INFINITY;
+        }
+        self.get(wid1.0, wid2.0).unwrap_or(f64::NEG_INFINITY)
     }
 
     /// Eager lookup: binary search on decoded `&[u32]` columns.

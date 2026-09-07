@@ -1,15 +1,11 @@
 //! Decode WordLattice to ranked hypotheses
 
-use std::{
-    cmp::{Ordering, Reverse},
-    collections::BinaryHeap,
-    ops::Neg,
-};
+use std::{cmp::Ordering, ops::Neg};
 
 use crate::{
     conversion::word_lattice::{Edge, WordLattice},
     lm::static_lm::StaticLm,
-    model::{Surface, WordId, WordOrig},
+    model::{Surface, WordId},
 };
 
 #[derive(Clone, Debug)]
@@ -76,139 +72,126 @@ impl Decoder {
     }
 }
 
-const LOG10_ALPHA_0_4: f64 = -0.39794;
-const USER_FLOOR: f64 = -2.0;
-const UNIGRAM_FLOOR: f64 = -20.0;
 const ERROR_FLOOR: f64 = -30.0;
-const HISTORY_BOOST_FACTOR: f64 = 0.5;
 const MANUAL_BOOST_FACTOR: f64 = 2.0;
+const LOG10_LAMBDA_BIGRAM: f64 = -0.2218487;
+const LOG10_LAMBDA_UNIGRAM: f64 = -0.39794;
+
+#[inline]
+fn log10_sum_exp(a: f64, b: f64) -> f64 {
+    let hi = a.max(b);
+    let lo = a.min(b);
+    hi + (1.0 + 10f64.powf(lo - hi)).log10()
+}
 
 fn cost_fun(lm: &StaticLm, w1: Surface, w2: Surface, w2boost: i32) -> f64 {
     let (wid1, wid2) = match (w1, w2) {
-        (Surface::Word(wid1), Surface::Word(wid2)) => (wid1, wid2),
-        (Surface::Word(wid), _) | (_, Surface::Word(wid)) => (WordId(0), wid),
+        (Surface::Word(a), Surface::Word(b)) => (a, b),
+        (Surface::Word(b), _) | (_, Surface::Word(b)) => (WordId(0), b),
         _ => return ERROR_FLOOR.neg(),
     };
-    let unigram_prob = if let Some(prob) = lm.get(0, wid2.0) {
-        prob
-    } else if matches!(wid2.orig(), WordOrig::User) {
-        USER_FLOOR
-    } else {
-        UNIGRAM_FLOOR
-    };
-    // Attempt to get the bigram probability
-    let general_cost = if let Some(bigram_prob) = lm.get(wid1.0, wid2.0) {
-        // Use the bigram probability directly
-        bigram_prob.neg()
-    } else {
-        // Stupid back-off: penalty + unigram
-        (LOG10_ALPHA_0_4 + unigram_prob).neg()
-    };
-    // let hist_unigram_prob = self.history_freq.get(wid2).unwrap_or(unigram_prob);
-    // let hist_gain = (hist_unigram_prob - unigram_prob).neg();
-    let hist_gain = 0.0;
-    let manual_freq = w2boost as f64;
-    let manual_gain = if manual_freq >= 0.0 {
-        (manual_freq + 1.0).log10()
-    } else {
-        -manual_freq.abs().log10()
-    };
-    let cost = general_cost - HISTORY_BOOST_FACTOR * hist_gain - MANUAL_BOOST_FACTOR * manual_gain;
-    cost
+    // Linear interpolation unigram and bigram
+    let mixed = log10_sum_exp(
+        LOG10_LAMBDA_BIGRAM + lm.bigram(wid1, wid2),
+        LOG10_LAMBDA_UNIGRAM + lm.unigram(wid2),
+    );
+    let cost = -mixed;
+    let f = w2boost as f64;
+    let manual_gain = (f.abs() + 1.0).log10() * f.signum();
+    cost - MANUAL_BOOST_FACTOR * manual_gain
 }
 
-#[derive(Debug)]
-struct Path {
-    priority: Reverse<OrderedF64>,
+#[derive(Debug, Clone, Copy)]
+struct KEntry {
     cost: f64,
-    front: StateCoord,
     tid: usize,
 }
 
-impl Eq for Path {}
-
-impl PartialEq for Path {
-    fn eq(&self, other: &Self) -> bool {
-        self.priority.eq(&other.priority)
-    }
-}
-
-impl PartialOrd for Path {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Path {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.priority.cmp(&other.priority)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-struct StateCoord {
-    prev: Surface,
-    curr: Edge,
-}
-
-/// Modified m-A* algorithm to find the N-best distinct result strings
+/// k-best Viterbi over the state space `(position, last surface)`.
 ///
-/// Natalia Flerova, Radu Marinescu, and Rina
-/// Dechter. 2016. Searching for the M best solutions in graphical
-/// models. J. Artif. Int. Res. 55, 1 (January 2016), 889–952.
-/// https://jair.org/index.php/jair/article/view/10995
+/// R. Schwartz and Y. . -L. Chow, "The N-best algorithms: an efficient
+/// and exact procedure for finding the N most likely sentence
+/// hypotheses," International Conference on Acoustics, Speech, and
+/// Signal Processing, Albuquerque, NM, USA, 1990, pp. 81-84 vol.1, doi:
+/// 10.1109/ICASSP.1990.115542. keywords: {Natural languages;Acoustic
+/// beams;Speech},
 fn find_k_paths<F>(k: u8, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
 where
     F: Fn(Surface, Surface, i32) -> f64,
 {
-    let h = future_cost(lattice, &cost_fn);
     let len = lattice.len;
+    let keep = k as usize;
+
     let mut trails: Vec<(usize, Edge)> = vec![];
-    let mut open = BinaryHeap::new();
+    // layers[p]: up to k-best (cost, tid) prefixes ending at p with a surface.
+    let mut layers: Vec<Vec<(Surface, Vec<KEntry>)>> = vec![vec![]; len + 1];
 
     trails.push((0, Edge::default()));
-    open.push(Path {
-        priority: Reverse(OrderedF64(h[0])),
-        cost: 0.0,
-        front: StateCoord::default(),
-        tid: 0,
-    });
+    layers[0].push((Surface::None, vec![KEntry { cost: 0.0, tid: 0 }]));
 
-    let mut results = Vec::with_capacity(k as usize);
-
-    while let Some(path) = open.pop() {
-        if path.front.curr.end as usize == len {
-            results.push((reconstruct(&trails, path.tid), path.cost));
-            if results.len() == k as usize {
-                // should already be sorted but just in case the heuristic
-                // is not admissible.
-                // TODO: emitt warning in that case.
-                results.sort_by_key(|r| OrderedF64(r.1));
-                break;
+    for p in 0..len {
+        let layer = std::mem::take(&mut layers[p]);
+        for (prev, entries) in layer {
+            for e in &lattice.edges[p] {
+                let cost = cost_fn(prev, e.surface, e.boost);
+                let keep_list = get_keep_list(&mut layers[e.end as usize], e.surface);
+                for ent in &entries {
+                    insert_keep_k(keep_list, ent.cost + cost, ent.tid, e, &mut trails, keep);
+                }
             }
-            continue;
-        }
-
-        for e in &lattice.edges[path.front.curr.end as usize] {
-            let cost = path.cost + cost_fn(path.front.curr.surface, e.surface, e.boost);
-            let tid = trails.len();
-
-            trails.push((path.tid, *e));
-            open.push(Path {
-                priority: Reverse(OrderedF64(cost + h[e.end as usize])),
-                cost,
-                front: StateCoord {
-                    prev: path.front.curr.surface,
-                    curr: *e,
-                },
-                tid,
-            });
         }
     }
-    results
+
+    let mut finals: Vec<KEntry> = layers[len]
+        .iter()
+        .flat_map(|(_, es)| es.iter().copied())
+        .collect();
+    finals.sort_by_key(|e| OrderedF64(e.cost));
+    finals
         .into_iter()
-        .map(|(edges, cost)| Hypothesis { edges, cost })
+        .take(keep)
+        .map(|e| Hypothesis {
+            edges: reconstruct(&trails, e.tid),
+            cost: e.cost,
+        })
         .collect()
+}
+
+fn get_keep_list<'a>(
+    layer: &'a mut Vec<(Surface, Vec<KEntry>)>,
+    surface: Surface,
+) -> &'a mut Vec<KEntry> {
+    if let Some(i) = layer.iter().position(|(s, _)| *s == surface) {
+        &mut layer[i].1
+    } else {
+        layer.push((surface, vec![]));
+        let last = layer.len() - 1;
+        &mut layer[last].1
+    }
+}
+
+fn insert_keep_k(
+    keep_list: &mut Vec<KEntry>,
+    cost: f64,
+    parent_tid: usize,
+    e: &Edge,
+    trails: &mut Vec<(usize, Edge)>,
+    keep: usize,
+) {
+    if keep == 0 {
+        return;
+    }
+    if keep_list.len() == keep && keep_list[keep - 1].cost <= cost {
+        return;
+    }
+    let pos = keep_list.partition_point(|x| x.cost < cost);
+    if pos == keep {
+        return;
+    }
+    let tid = trails.len();
+    trails.push((parent_tid, *e));
+    keep_list.insert(pos, KEntry { cost, tid });
+    keep_list.truncate(keep);
 }
 
 fn reconstruct(trails: &[(usize, Edge)], tid: usize) -> Vec<Edge> {
@@ -242,56 +225,6 @@ impl Ord for OrderedF64 {
         // so Eq/Ord invariants hold and the heap can never panic on comparison.
         self.0.total_cmp(&other.0)
     }
-}
-
-// h[v] = cost lower bound of any path from node v to the sink (len).
-// DAG with start < end, so process nodes in decreasing order.
-fn future_cost<F>(lattice: &WordLattice, cost_fn: F) -> Vec<f64>
-where
-    F: Fn(Surface, Surface, i32) -> f64,
-{
-    let len = lattice.len;
-
-    // Precompute incoming edges: for each position, which surfaces can reach it
-    let mut incoming: Vec<Vec<(usize, Surface, i32)>> = vec![vec![]; len + 1];
-    for u in 0..len {
-        for e in &lattice.edges[u] {
-            incoming[e.end as usize].push((u, e.surface, e.boost));
-        }
-    }
-
-    let mut h = vec![f64::INFINITY; len + 1];
-    h[len] = 0.0;
-
-    for v in (0..len).rev() {
-        for e in &lattice.edges[v] {
-            let curr = e.surface;
-            let boost = e.boost;
-
-            // Minimum cost to generate `curr` at position v,
-            // considering all possible predecessors
-            let min_step = if v == 0 {
-                // Start of input buffer: unigram only
-                cost_fn(Surface::None, curr, boost)
-            } else {
-                // Min over all predecessors
-                let mut best = f64::INFINITY;
-                for &(_, prev_surf, _) in &incoming[v] {
-                    let c = cost_fn(prev_surf, curr, boost);
-                    if c < best {
-                        best = c;
-                    }
-                }
-                best
-            };
-
-            let c = min_step + h[e.end as usize];
-            if c < h[v] {
-                h[v] = c;
-            }
-        }
-    }
-    h
 }
 
 #[cfg(test)]
