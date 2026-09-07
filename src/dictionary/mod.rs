@@ -75,7 +75,7 @@ pub struct DictionaryInfo {
 ///
 /// let phrase = Phrase::new("測", 1);
 /// assert_eq!(phrase, ("測", 1).into());
-/// assert_eq!(("測".to_string(), 1u32), phrase.into());
+/// assert_eq!(("測".to_string(), 1i32), phrase.into());
 /// ```
 ///
 /// Phrases are ordered by their frequency.

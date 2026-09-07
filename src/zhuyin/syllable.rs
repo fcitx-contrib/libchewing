@@ -513,9 +513,6 @@ macro_rules! syl {
 
 #[cfg(test)]
 mod test {
-
-    use std::num::NonZeroU16;
-
     use super::{Bopomofo, Syllable};
 
     #[test]
