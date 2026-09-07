@@ -375,7 +375,7 @@ void test_select_candidate_4_bytes_utf8()
 
     type_keystroke_by_string(ctx, "<D><D>8");
 
-    ok_preedit_buffer(ctx, "得𢔨" );
+    ok_preedit_buffer(ctx, "𢔨𢔨" );
 
     chewing_delete(ctx);
 }
@@ -503,7 +503,7 @@ void test_select_candidate_shift_cursor()
 
     type_keystroke_by_string(ctx, "<D>2");
 
-    ok_preedit_buffer(ctx, "七上八下那里");
+    ok_preedit_buffer(ctx, "七上八下納里");
 
     chewing_delete(ctx);
 }
@@ -534,7 +534,7 @@ void test_select_candidate_shift_cursor_rearword()
 
     type_keystroke_by_string(ctx, "<D><D>2");
 
-    ok_preedit_buffer(ctx, "七上八下那里");
+    ok_preedit_buffer(ctx, "七上八下納里");
 
     chewing_delete(ctx);
 }
@@ -625,7 +625,7 @@ void test_move_after_select_with_tab()
     chewing_config_set_int(ctx, "chewing.auto_snapshot_selections", 1);
 
     type_keystroke_by_string(ctx, "u4g4hk4g4<T><T><L>");
-    ok_preedit_buffer(ctx, "義式測試意識測試");
+    ok_preedit_buffer(ctx, "義式測試義式測試");
 
     chewing_delete(ctx);
 }
@@ -1954,7 +1954,7 @@ void test_KB_HSU_example()
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "xhfjxl cen <D>2vedxkjnefnldhwfhwfdej<D>1uljgxl dxdcx ");
-    ok_preedit_buffer(ctx, "我衷心期望你能好好地用功讀書");
+    ok_preedit_buffer(ctx, "我忠心期望你能好好地用功讀書");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "xajlgsbewfmeldty dgsjxl cen ");
