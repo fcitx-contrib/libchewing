@@ -300,8 +300,8 @@ impl Composition {
     pub fn push_selection(&mut self, selection: Selection) {
         assert!(selection.end <= self.len());
         let mut to_remove = vec![];
-        for (i, selection) in self.selections.iter().enumerate() {
-            if selection.intersect(&selection) {
+        for (i, s) in self.selections.iter().enumerate() {
+            if selection.intersect(&s) {
                 to_remove.push(i);
             }
         }
@@ -359,5 +359,34 @@ impl Composition {
         self.symbols.clear();
         self.gaps.clear();
         self.selections.clear();
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::model::WordId;
+
+    use super::Selection;
+
+    #[test]
+    fn selection_intersect() {
+        let s1 = Selection {
+            start: 1,
+            end: 3,
+            wid: WordId(1),
+        };
+        let s2 = Selection {
+            start: 2,
+            end: 4,
+            wid: WordId(2),
+        };
+        let s3 = Selection {
+            start: 4,
+            end: 6,
+            wid: WordId(3),
+        };
+        assert!(s1.intersect(&s2));
+        assert!(!s1.intersect(&s3));
+        assert!(!s2.intersect(&s3));
     }
 }
