@@ -12,7 +12,6 @@ use std::{
 };
 
 use scoped_error::{bail, expect_error, impl_context_error};
-use tinyvec::{TinyVec, tiny_vec};
 
 use crate::{
     bare::{BareDecoder, BareEncoder},
@@ -111,7 +110,7 @@ impl HistoryDict {
             // Read record frames
             for _ in 0..count {
                 let len = decoder.read_uint()? as usize;
-                let mut syllables = tiny_vec!([Syllable; 5]);
+                let mut syllables = SyllableVec::new();
                 for _ in 0..len {
                     let syl = Syllable::try_from(decoder.read_u16()?)?;
                     syllables.push(syl);
@@ -214,7 +213,7 @@ impl HistoryDict {
         &self,
         syllables: &[Syllable],
         strategy: LookupStrategy,
-    ) -> TinyVec<[(WordId, i32); 3]> {
+    ) -> Vec<(WordId, i32)> {
         let lock = self
             .inner
             .read()

@@ -6,7 +6,7 @@ use crate::{
     conversion::{Composition, Gap, Symbol},
     dictionary::{CompositeDict, LookupStrategy},
     model::{Surface, WordId},
-    zhuyin::Syllable,
+    zhuyin::{Syllable, SyllableVec},
 };
 
 #[derive(Debug)]
@@ -29,9 +29,6 @@ pub struct Edge {
     pub boost: i32,
 }
 
-// Assume no words in the dictionary are longer than MAX_PHRASE_LEN syllables.
-const MAX_PHRASE_LEN: usize = 15;
-
 impl WordLattice {
     pub fn from_str<F>(s: &str, find_words: F) -> WordLattice
     where
@@ -46,7 +43,7 @@ impl WordLattice {
 
         let mut edges = vec![vec![]; len];
         for start in 0..len {
-            let max_end = usize::min(start + MAX_PHRASE_LEN, len);
+            let max_end = usize::min(start + SyllableVec::MAX_LEN, len);
             for end in (start + 1)..=max_end {
                 let s_start = chars_vec[start];
                 let s_end = chars_vec[end];
@@ -77,7 +74,7 @@ impl WordLatticeBuilder {
         let len = com.len();
         let mut edges = vec![vec![]; len];
         for start in 0..com.symbols.len() {
-            let max_end = usize::min(start + MAX_PHRASE_LEN, com.symbols.len());
+            let max_end = usize::min(start + SyllableVec::MAX_LEN, com.symbols.len());
             for end in (start + 1)..=max_end {
                 for (surface, boost) in self.find_words(start, &com.symbols[start..end], com) {
                     edges[start].push(Edge {

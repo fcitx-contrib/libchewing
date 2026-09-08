@@ -1,17 +1,103 @@
 use std::{
+    borrow::Borrow,
     error::Error,
     fmt::{Debug, Display, Write},
+    hash::Hash,
     num::NonZeroU16,
-    ops::Shl,
+    ops::{Deref, Shl},
+    slice,
     str::FromStr,
 };
-
-use tinyvec::TinyVec;
 
 use super::{Bopomofo, BopomofoKind};
 use crate::exn::{Exn, ResultExt};
 
-pub(crate) type SyllableVec = TinyVec<[Syllable; 5]>;
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct SyllableVec {
+    buf: [Syllable; Self::MAX_LEN],
+    len: u8,
+}
+
+impl SyllableVec {
+    pub(crate) const MAX_LEN: usize = 11;
+
+    pub(crate) fn new() -> SyllableVec {
+        Self::default()
+    }
+
+    pub(crate) fn push(&mut self, value: Syllable) {
+        if self.len == Self::MAX_LEN as u8 {
+            panic!("SyllableVec can only store up to 10 syllables");
+        }
+        self.buf[self.len as usize] = value;
+        self.len += 1;
+    }
+}
+
+impl Eq for SyllableVec {}
+
+impl PartialEq for SyllableVec {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref().eq(other.as_ref())
+    }
+}
+
+impl PartialOrd for SyllableVec {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.as_ref().partial_cmp(other.as_ref())
+    }
+}
+
+impl Ord for SyllableVec {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_ref().cmp(other.as_ref())
+    }
+}
+
+impl Hash for SyllableVec {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state);
+    }
+}
+
+impl Borrow<[Syllable]> for SyllableVec {
+    fn borrow(&self) -> &[Syllable] {
+        &self.buf[..(self.len as usize)]
+    }
+}
+
+impl Deref for SyllableVec {
+    type Target = [Syllable];
+
+    fn deref(&self) -> &Self::Target {
+        &self.buf[..(self.len as usize)]
+    }
+}
+
+impl<'a> IntoIterator for &'a SyllableVec {
+    type Item = &'a Syllable;
+    type IntoIter = slice::Iter<'a, Syllable>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.buf[..(self.len as usize)].into_iter()
+    }
+}
+
+impl<T> From<T> for SyllableVec
+where
+    T: AsRef<[Syllable]>,
+{
+    fn from(value: T) -> Self {
+        if value.as_ref().len() > Self::MAX_LEN {
+            panic!("SyllableVec can only store up to 10 syllables");
+        }
+        let mut vec = SyllableVec::new();
+        let len = value.as_ref().len().min(Self::MAX_LEN);
+        vec.buf[..len].copy_from_slice(&value.as_ref()[..len]);
+        vec.len = len as u8;
+        vec
+    }
+}
 
 pub(crate) fn parse_syllable_vec(input: &str) -> Result<SyllableVec, ParseSyllableError> {
     let mut res = SyllableVec::new();
@@ -513,7 +599,12 @@ macro_rules! syl {
 
 #[cfg(test)]
 mod test {
-    use super::{Bopomofo, Syllable};
+    use super::{Bopomofo, Syllable, SyllableVec};
+
+    #[test]
+    fn syllable_vec_size() {
+        assert_eq!(size_of::<SyllableVec>(), 24);
+    }
 
     #[test]
     fn syllable_hsu_sdf_as_u16() {

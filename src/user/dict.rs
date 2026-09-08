@@ -12,7 +12,6 @@ use std::{
 };
 
 use scoped_error::{expect_error, impl_context_error};
-use tinyvec::TinyVec;
 
 use crate::{
     dictionary::{LookupStrategy, Phrase, StringTable},
@@ -193,11 +192,7 @@ impl UserDict {
             word_entries.remove(pos);
         }
     }
-    pub fn lookup(
-        &self,
-        syllables: &[Syllable],
-        strategy: LookupStrategy,
-    ) -> TinyVec<[(WordId, i32); 3]> {
+    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<(WordId, i32)> {
         let lock = self
             .inner
             .read()
