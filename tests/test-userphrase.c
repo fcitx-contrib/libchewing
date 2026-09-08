@@ -255,7 +255,7 @@ void test_CtrlNum_add_phrase_right_start_with_symbol()
 
     ok(has_userphrase(ctx, bopomofo, NULL) == 0, "`%s' shall not be in userphrase", bopomofo);
 
-    type_keystroke_by_string(ctx, "`1hk4g42;3wj3fu;6<L><L><L><D>3<C3>");
+    type_keystroke_by_string(ctx, "`1hk4g42;3wj3fu;6<L><L><L><C3>");
     ok(has_userphrase(ctx, bopomofo, NULL) == 1, "`%s' shall be in userphrase", bopomofo);
 
     chewing_cand_open(ctx);
@@ -283,7 +283,7 @@ void test_CtrlNum_add_phrase_left_start_with_symbol()
 
     ok(has_userphrase(ctx, bopomofo, NULL) == 0, "`%s' shall not be in userphrase", bopomofo);
 
-    type_keystroke_by_string(ctx, "`1hk4g42;3wj3fu;6<L><L><L><D>3<EN><C3>");
+    type_keystroke_by_string(ctx, "`1hk4g42;3wj3fu;6<L><L><L><EN><C3>");
     ok(has_userphrase(ctx, bopomofo, NULL) == 1, "`%s' shall be in userphrase", bopomofo);
 
     type_keystroke_by_string(ctx, "<L><L><L>");

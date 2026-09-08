@@ -461,7 +461,8 @@ void test_select_candidate_second_page_rewind()
 
     static const char *CAND[] = {
         "分分",
-        "紛紛"
+        "紛紛",
+        "雰雰"
     };
 
     clean_userphrase();
