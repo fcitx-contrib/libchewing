@@ -212,7 +212,7 @@ impl Editor {
             let lm = StaticLm::from_reader(
                 BufReader::new(File::open(&static_lm_path)?),
                 // Lazy mode is too slow for now
-                LoadMode::Eager,
+                LoadMode::Lazy,
             )?;
 
             if let Some(up) = sp.user_datadir() {

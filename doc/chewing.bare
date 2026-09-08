@@ -55,12 +55,14 @@ type StaticLMFileV1 struct {
 
 type StaticLMHeaderV1 struct {
     flags: u32
+    num_unigrams: u32
     num_rows: u32
     num_values: u64
     col_deltas_len: u64
 }
 
 type StaticLMIndexV1 {
+    unigrams: list<u8>[num_unigrams]
     r: list<u32>[num_rows]
     rbo: list<u32>[num_rows]
     c: list<uint>[num_values]

@@ -71,6 +71,9 @@ pub struct StaticLm {
 
 #[derive(Debug)]
 struct StaticLmInner {
+    /// Quantized unigram log-probabilities
+    unigrams: Box<[u8]>,
+
     /// Cumulative entry counts: row_index[i+1] - row_index[i] = nnz in row i.
     row_index: Box<[u32]>,
 
@@ -100,6 +103,7 @@ impl StaticLm {
     pub fn new() -> StaticLm {
         StaticLm {
             inner: Arc::new(StaticLmInner {
+                unigrams: Box::new([]),
                 row_index: Box::new([]),
                 values: Box::new([]),
                 cols: ColStorage::Decoded(Box::new([])),
@@ -129,9 +133,14 @@ impl StaticLm {
                 warn!("Unknown StaticLm flags {:x}", flags);
             }
 
+            let num_unigrams = decoder.read_u32()?;
             let num_rows = decoder.read_u32()?;
             let num_values = decoder.read_u64()?;
             let col_deltas_len = decoder.read_u64()?;
+
+            let unigrams: Box<[u8]> = decoder
+                .read_data_exact(num_unigrams as usize)?
+                .into_boxed_slice();
 
             let row_index: Box<[u32]> = decoder
                 .read_list_u32_exact((num_rows + 1) as usize)?
@@ -169,6 +178,7 @@ impl StaticLm {
 
             Ok(StaticLm {
                 inner: Arc::new(StaticLmInner {
+                    unigrams,
                     row_index,
                     values,
                     cols,
@@ -191,7 +201,12 @@ impl StaticLm {
     const UNIGRAM_FLOOR: f64 = -20.0;
 
     pub fn unigram(&self, wid: WordId) -> f64 {
-        let raw = self.get(0, wid.0).unwrap_or(f64::NEG_INFINITY);
+        let raw = self
+            .inner
+            .unigrams
+            .get(wid.0 as usize)
+            .map(|&q| unquantize_log_prob(q))
+            .unwrap_or(f64::NEG_INFINITY);
         let floor = if matches!(wid.orig(), WordOrig::User) {
             Self::USER_FLOOR
         } else {
@@ -301,37 +316,42 @@ fn decode_all_columns(
 
 #[derive(Debug)]
 pub struct StaticLmCompiler {
+    unigrams: Vec<f64>,
     matrix: BTreeMap<(WordId, WordId), f64>,
     rows: u32,
-    unigram_len: u64,
     bigram_len: u64,
 }
 
 impl StaticLmCompiler {
     pub fn new() -> StaticLmCompiler {
         StaticLmCompiler {
+            unigrams: Vec::new(),
             matrix: BTreeMap::new(),
             rows: 0,
-            unigram_len: 0,
             bigram_len: 0,
         }
     }
 
-    pub fn insert(&mut self, row: WordId, col: WordId, value: f64) -> Result<(), StaticLmError> {
-        expect_error("Failed to compile language model", || {
-            if self.matrix.contains_key(&(row, col)) {
-                eprintln!("Multiple entries for ({}, {})", row, col);
-                return Ok(());
-            }
-            self.matrix.insert((row, col), value);
-            self.rows = self.rows.max(row.0 + 1);
-            if row.0 == 0 {
-                self.unigram_len += 1;
-            } else {
-                self.bigram_len += 1;
-            }
-            Ok(())
-        })
+    pub fn reserve_unigrams(&mut self, size: usize) {
+        self.unigrams = vec![f64::NEG_INFINITY; size];
+    }
+
+    pub fn insert_unigram(&mut self, wid: WordId, value: f64) {
+        if wid.0 as usize >= self.unigrams.len() {
+            eprintln!("unigram word id too large: {}", wid);
+            return;
+        }
+        self.unigrams[wid.0 as usize] = value;
+    }
+
+    pub fn insert_bigram(&mut self, row: WordId, col: WordId, value: f64) {
+        if self.matrix.contains_key(&(row, col)) {
+            eprintln!("Multiple entries for ({}, {})", row, col);
+            return;
+        }
+        self.matrix.insert((row, col), value);
+        self.rows = self.rows.max(row.0 + 1);
+        self.bigram_len += 1;
     }
 
     pub fn to_writer<W>(&self, writer: W) -> Result<(), StaticLmError>
@@ -341,6 +361,18 @@ impl StaticLmCompiler {
         expect_error("Failed to serialize StaticLm", || {
             let mut encoder = BareEncoder::new(writer);
 
+            let q_unigrams: Vec<u8> = self
+                .unigrams
+                .iter()
+                .filter_map(|&log10_prob| {
+                    let quantized = quantize_log_prob(log10_prob);
+                    if quantized == 0 {
+                        None
+                    } else {
+                        Some(quantized)
+                    }
+                })
+                .collect();
             let q_matrix: BTreeMap<(u32, u32), u8> = self
                 .matrix
                 .iter()
@@ -401,12 +433,19 @@ impl StaticLmCompiler {
             encoder.write_uint(0)?;
             // Flags
             encoder.write_u32(0)?;
+            // num_unigrams
+            encoder.write_u32(self.unigrams.len() as u32)?;
             // num_rows
             encoder.write_u32(self.rows)?;
             // num_values
             encoder.write_u64(entry_count as u64)?;
             // col_deltas byte length
             encoder.write_u64(col_deltas_buf.len() as u64)?;
+
+            // unigrams
+            for uni in q_unigrams {
+                encoder.write_u8(uni)?;
+            }
 
             // row_index (cumulative entry counts)
             for &ptr in &row_ptr {
@@ -464,21 +503,12 @@ mod test {
     /// Helper: compile, serialize, deserialize in the given mode, and return the LM.
     fn roundtrip(mode: LoadMode) -> StaticLm {
         let mut compiler = StaticLmCompiler::new();
-        compiler
-            .insert(WordId(0), WordId(0), 0.01_f64.log10())
-            .unwrap();
-        compiler
-            .insert(WordId(1), WordId(1), 0.02_f64.log10())
-            .unwrap();
-        compiler
-            .insert(WordId(2), WordId(2), 0.03_f64.log10())
-            .unwrap();
-        compiler
-            .insert(WordId(3), WordId(1), 0.04_f64.log10())
-            .unwrap();
-        compiler
-            .insert(WordId(3), WordId(2), 0.05_f64.log10())
-            .unwrap();
+        compiler.reserve_unigrams(1);
+        compiler.insert_unigram(WordId(0), 0.01_f64.log10());
+        compiler.insert_bigram(WordId(1), WordId(1), 0.02_f64.log10());
+        compiler.insert_bigram(WordId(2), WordId(2), 0.03_f64.log10());
+        compiler.insert_bigram(WordId(3), WordId(1), 0.04_f64.log10());
+        compiler.insert_bigram(WordId(3), WordId(2), 0.05_f64.log10());
 
         let mut buf: Vec<u8> = vec![];
         compiler.to_writer(&mut buf).unwrap();
@@ -491,7 +521,6 @@ mod test {
         let lm = roundtrip(LoadMode::Eager);
 
         let entries = [
-            (0, 0, 0.01_f64.log10()),
             (1, 1, 0.02_f64.log10()),
             (2, 2, 0.03_f64.log10()),
             (3, 1, 0.04_f64.log10()),
@@ -524,7 +553,6 @@ mod test {
         let lm = roundtrip(LoadMode::Lazy);
 
         let entries = [
-            (0, 0, 0.01_f64.log10()),
             (1, 1, 0.02_f64.log10()),
             (2, 2, 0.03_f64.log10()),
             (3, 1, 0.04_f64.log10()),
@@ -559,8 +587,8 @@ mod test {
         let lazy = roundtrip(LoadMode::Lazy);
 
         // Check all existing entries
-        for row in 0..4 {
-            for col in 0..4 {
+        for row in 1..4 {
+            for col in 1..4 {
                 assert_eq!(
                     eager.get(row, col),
                     lazy.get(row, col),
@@ -584,7 +612,7 @@ mod test {
         // Row 10: columns [100, 105, 200, 201, 5000]
         // Deltas:  [100,   5,  95,   1, 4799]
         for &col in &[100u32, 105, 200, 201, 5000] {
-            compiler.insert(WordId(10), WordId(col), -2.0).unwrap();
+            compiler.insert_bigram(WordId(10), WordId(col), -2.0);
         }
 
         let mut buf: Vec<u8> = vec![];
@@ -614,13 +642,14 @@ mod test {
         let mut compiler = StaticLmCompiler::new();
 
         // Row 0: 1000 unigram entries (columns 0..1000)
+        compiler.reserve_unigrams(1000);
         for col in 0..1000u32 {
-            compiler.insert(WordId(0), WordId(col), -3.0).unwrap();
+            compiler.insert_unigram(WordId(col), -3.0);
         }
 
         // Row 1: 500 bigram entries with clustered columns
         for col in (1000..2000u32).step_by(2) {
-            compiler.insert(WordId(1), WordId(col), -4.0).unwrap();
+            compiler.insert_bigram(WordId(1), WordId(col), -4.0);
         }
 
         let mut buf: Vec<u8> = vec![];
@@ -629,8 +658,12 @@ mod test {
         for mode in [LoadMode::Eager, LoadMode::Lazy] {
             let lm = StaticLm::from_reader(buf.as_slice(), mode).unwrap();
 
-            assert!(lm.get(0, 0).is_some(), "mode {:?}", mode);
-            assert!(lm.get(0, 999).is_some(), "mode {:?}", mode);
+            assert!(lm.unigram(WordId(0)) > f64::NEG_INFINITY, "mode {:?}", mode);
+            assert!(
+                lm.unigram(WordId(999)) > f64::NEG_INFINITY,
+                "mode {:?}",
+                mode
+            );
             assert!(lm.get(1, 1000).is_some(), "mode {:?}", mode);
             assert!(lm.get(1, 1998).is_some(), "mode {:?}", mode);
             assert!(lm.get(1, 1001).is_none(), "mode {:?}", mode);

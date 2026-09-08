@@ -20,6 +20,8 @@ pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()>
     let arpa_reader = BufReader::new(File::open(arpa)?);
     let string_table = StringTable::open(words)?;
 
+    compiler.reserve_unigrams(string_table.len());
+
     let mut section = ArpaSection::Begin;
     for io in arpa_reader.lines() {
         let line = io?;
@@ -54,10 +56,7 @@ pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()>
             continue;
         }
 
-        if matches!(section, ArpaSection::Data) {
-            // TODO: save expected n-gram counts
-            continue;
-        }
+        if matches!(section, ArpaSection::Data) {}
 
         if matches!(section, ArpaSection::Unigram) {
             let mut cols = line.split_whitespace();
@@ -66,7 +65,7 @@ pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()>
             let wid = string_table
                 .get_wid(word)
                 .with_context(|| format!("Unknown word {word}"))?;
-            compiler.insert(WordId(0), WordId(*wid), log_prob)?;
+            compiler.insert_unigram(WordId(*wid), log_prob);
         }
 
         if matches!(section, ArpaSection::Bigram) {
@@ -80,7 +79,7 @@ pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()>
             let wid2 = string_table
                 .get_wid(word2)
                 .with_context(|| format!("Unknown word {word2}"))?;
-            compiler.insert(WordId(*wid1), WordId(*wid2), log_prob)?;
+            compiler.insert_bigram(WordId(*wid1), WordId(*wid2), log_prob);
         }
 
         if matches!(section, ArpaSection::End) {
