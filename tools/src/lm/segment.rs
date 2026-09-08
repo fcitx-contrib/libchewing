@@ -15,7 +15,7 @@ use chewing::{
 
 pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
     let lm = StaticLm::from_reader(File::open(static_lm)?, LoadMode::Eager)?;
-    let string_table = StringTable::open(words)?;
+    let string_table = StringTable::open_txt(words)?;
 
     let stdin = stdin().lock();
 

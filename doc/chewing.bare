@@ -1,3 +1,28 @@
+# static_words.bin
+# ===============
+# CHD perfect hashed words list for quick two way string to word_id lookup
+
+type StaticWordsFileMagic struct {
+    magic: data[4]                # CHSW
+    file: StaticWordsFile
+}
+
+type StaticWordsFile union {StaticWordsFileV1}
+
+type StaticWordsFileV1 struct {
+    header: StaticWordsHeader
+    # Newline (LF) delimited UTF-8 strings
+    words: data
+}
+
+type StaticWordsHeader {
+    flags: u32
+    num_keys: u32,
+    num_buckets: u32,
+    seed: u32,
+    displacements: list<u16>,
+}
+
 # static_dict.bin
 # ===============
 # Trie dictionary for bopomofo to words conversion

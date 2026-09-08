@@ -73,7 +73,7 @@ pub(crate) fn learn_lm_with_config(
     output: &Path,
     config: &PruningConfig,
 ) -> Result<()> {
-    let string_table = StringTable::open(words)?;
+    let string_table = StringTable::open_txt(words)?;
 
     let stdin = stdin();
     let n_threads = std::thread::available_parallelism()?.get();

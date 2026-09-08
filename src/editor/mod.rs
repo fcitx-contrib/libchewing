@@ -199,15 +199,15 @@ impl Editor {
                 .find_file("rare_dict.bin")
                 .ok_or("Failed to find rare_dict.bin file")?;
             let static_words_path = sp
-                .find_file("static_words.txt")
-                .ok_or("Failed to find static_words.txt file")?;
+                .find_file("static_words.bin")
+                .ok_or("Failed to find static_words.bin file")?;
             let static_lm_path = sp
                 .find_file("static_lm.bin")
                 .ok_or("Failed to find static_lm.bin file")?;
 
             let static_dict = StaticDict::open(&static_dict_path)?;
             let rare_dict = StaticDict::open(&rare_dict_path)?;
-            let string_table = StringTable::open(&static_words_path)?;
+            let string_table = StringTable::open_bin(&static_words_path)?;
 
             let lm = StaticLm::from_reader(
                 BufReader::new(File::open(&static_lm_path)?),
@@ -1886,7 +1886,7 @@ impl_context_error!(pub NewEditorError);
 mod tests {
     use super::BasicEditor;
     use super::collect_new_phrases;
-    use crate::dictionary::StringTable;
+    use crate::dictionary::StringTableBuilder;
     use crate::editor::{EditorBuilder, LanguageMode};
     use crate::lm::StaticDictBuilder;
     use crate::user::UserDict;
@@ -1935,7 +1935,9 @@ mod tests {
 
     #[test]
     fn editing_mode_input_bopomofo_commit() {
-        let string_table = StringTable::from_string("冊".to_string());
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        let string_table = builder.build();
         let mut dict_builder = StaticDictBuilder::new();
         dict_builder.insert(
             &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
@@ -1968,7 +1970,10 @@ mod tests {
 
     #[test]
     fn editing_mode_input_bopomofo_select() {
-        let string_table = StringTable::from_string("冊\n測".to_string());
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
         let mut dict_builder = StaticDictBuilder::new();
         dict_builder.insert(
             &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
@@ -2021,7 +2026,10 @@ mod tests {
 
     #[test]
     fn editing_mode_input_bopomofo_select_sorted() {
-        let string_table = StringTable::from_string("冊\n測".to_string());
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
         let mut dict_builder = StaticDictBuilder::new();
         dict_builder.insert(
             &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
@@ -2074,7 +2082,10 @@ mod tests {
 
     #[test]
     fn editing_mode_input_chinese_to_english_mode() {
-        let string_table = StringTable::from_string("冊".to_string());
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
         let mut dict_builder = StaticDictBuilder::new();
         dict_builder.insert(
             &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
@@ -2116,7 +2127,10 @@ mod tests {
 
     #[test]
     fn editing_mode_input_english_to_chinese_mode() {
-        let string_table = StringTable::from_string("冊".to_string());
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
         let mut dict_builder = StaticDictBuilder::new();
         dict_builder.insert(
             &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
@@ -2188,7 +2202,9 @@ mod tests {
 
     #[test]
     fn editing_chinese_mode_input_special_symbol() {
-        let string_table = StringTable::from_string("冊".to_string());
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        let string_table = builder.build();
         let mut dict_builder = StaticDictBuilder::new();
         dict_builder.insert(
             &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],

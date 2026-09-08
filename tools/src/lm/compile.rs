@@ -18,7 +18,7 @@ enum ArpaSection {
 pub(crate) fn compile_lm(arpa: &Path, words: &Path, output: &Path) -> Result<()> {
     let mut compiler = StaticLmCompiler::new();
     let arpa_reader = BufReader::new(File::open(arpa)?);
-    let string_table = StringTable::open(words)?;
+    let string_table = StringTable::open_txt(words)?;
 
     compiler.reserve_unigrams(string_table.len());
 

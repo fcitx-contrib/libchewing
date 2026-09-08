@@ -27,8 +27,11 @@ fn main() -> Result<()> {
         flags::ChewingCliCmd::Info(args) => info::run(args)?,
         flags::ChewingCliCmd::Dump(args) => dump::run(args)?,
         flags::ChewingCliCmd::Index(sub) => match sub {
-            flags::Index::Create(args) => {
-                index::create_index(&args.tsi_csv, &args.words_txt, &args.output)?
+            flags::Index::CreateDict(args) => {
+                index::create_index_dict(&args.tsi_csv, &args.words_txt, &args.dict_output)?
+            }
+            flags::Index::CreateStringTable(args) => {
+                index::create_string_table(&args.words_txt, &args.words_output)?
             }
         },
         flags::ChewingCliCmd::Lm(sub) => match sub {

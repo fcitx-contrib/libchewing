@@ -12,6 +12,7 @@ use std::{
 
 pub use self::composite::CompositeDict;
 pub use self::string_table::StringTable;
+pub use self::string_table::StringTableBuilder;
 pub use self::trie::{Trie, TrieBuilder, TrieOpenOptions, TrieStatistics};
 pub use self::usage::DictionaryUsage;
 use crate::exn::Exn;

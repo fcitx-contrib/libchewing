@@ -30,17 +30,27 @@ pub(crate) enum ChewingCliCmd {
 #[derive(Subcommand)]
 pub(crate) enum Index {
     /// Create dictionary index file
-    Create(IndexCreate),
+    CreateDict(IndexCreateDict),
+    /// Create string table index file
+    CreateStringTable(IndexCreateStringTable),
 }
 
 #[derive(Args)]
-pub(crate) struct IndexCreate {
+pub(crate) struct IndexCreateDict {
     /// Path to the dictionary source file (tsi.csv)
     pub(crate) tsi_csv: PathBuf,
     /// Path to the words list (static_words.txt)
     pub(crate) words_txt: PathBuf,
     /// Path to the output file (static_dict.bin)
-    pub(crate) output: PathBuf,
+    pub(crate) dict_output: PathBuf,
+}
+
+#[derive(Args)]
+pub(crate) struct IndexCreateStringTable {
+    /// Path to the words list (static_words.txt)
+    pub(crate) words_txt: PathBuf,
+    /// Path to the output file (static_words.bin)
+    pub(crate) words_output: PathBuf,
 }
 
 #[derive(Subcommand)]

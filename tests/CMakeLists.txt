@@ -34,8 +34,8 @@ add_custom_target(static_data ALL DEPENDS dict_chewing_v4 misc
         ${PROJECT_BINARY_DIR}/data/misc/symbols.dat
         ${PROJECT_BINARY_DIR}/static_data/symbols.dat
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${PROJECT_BINARY_DIR}/data/dict/chewing_v4/static_words.txt
-        ${PROJECT_BINARY_DIR}/static_data/static_words.txt
+        ${PROJECT_BINARY_DIR}/data/dict/chewing_v4/static_words.bin
+        ${PROJECT_BINARY_DIR}/static_data/static_words.bin
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${PROJECT_BINARY_DIR}/data/dict/chewing_v4/static_dict.bin
         ${PROJECT_BINARY_DIR}/static_data/static_dict.bin
