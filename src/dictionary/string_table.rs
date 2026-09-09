@@ -17,13 +17,17 @@ use crate::{
 /// Fast and compact indexing of LF delimited strings
 #[derive(Clone)]
 pub struct StringTable {
-    inner: Arc<RwLock<StringTableInner>>,
+    inner_ro: Arc<StringTableInnerRo>,
+    inner_mut: Arc<RwLock<StringTableInnerMut>>,
 }
 
-struct StringTableInner {
+struct StringTableInnerRo {
     chd: Chd,
     buffer: Box<str>,
     offset: Box<[u32]>,
+}
+
+struct StringTableInnerMut {
     vec: Vec<String>,
     map: BTreeMap<String, u32>,
 }
@@ -42,12 +46,12 @@ impl Debug for StringTable {
                     .finish_non_exhaustive()
             }
         }
-        let lock = self.inner.read().expect("Failed to acquire reader lock");
-        let end = lock.buffer.len().min(100);
-        let buffer_prefix = format!("{}...", &lock.buffer[..end]);
+        let ro = self.inner_ro.as_ref();
+        let end = ro.buffer.len().min(100);
+        let buffer_prefix = format!("{}...", &ro.buffer[..end]);
         f.debug_struct("StringTable")
             .field("buffer", &buffer_prefix)
-            .field("offset", &IntList(&lock.offset))
+            .field("offset", &IntList(&ro.offset))
             .finish()
     }
 }
@@ -56,10 +60,12 @@ impl StringTable {
     /// Creates an empty StringTable
     pub fn new() -> StringTable {
         StringTable {
-            inner: Arc::new(RwLock::new(StringTableInner {
+            inner_ro: Arc::new(StringTableInnerRo {
                 chd: Chd::new(),
                 buffer: String::new().into_boxed_str(),
                 offset: vec![].into_boxed_slice(),
+            }),
+            inner_mut: Arc::new(RwLock::new(StringTableInnerMut {
                 vec: vec![],
                 map: BTreeMap::new(),
             })),
@@ -126,10 +132,12 @@ impl StringTable {
             }
             let offset = offset.into_boxed_slice();
             Ok(StringTable {
-                inner: Arc::new(RwLock::new(StringTableInner {
+                inner_ro: Arc::new(StringTableInnerRo {
                     chd,
                     buffer,
                     offset,
+                }),
+                inner_mut: Arc::new(RwLock::new(StringTableInnerMut {
                     vec: vec![],
                     map: BTreeMap::new(),
                 })),
@@ -138,48 +146,51 @@ impl StringTable {
     }
     /// Returns the number of strings in the table
     pub fn len(&self) -> usize {
-        let lock = self.inner.read().expect("StringTable lock posioned");
-        lock.vec.len() + lock.offset.len()
+        let ro = self.inner_ro.as_ref();
+        let lock = self.inner_mut.read().expect("StringTable lock posioned");
+        lock.vec.len() + ro.offset.len()
     }
     pub fn intern(&self, word: &str) -> WordId {
         // check existing mapping
         if let Some(wid) = self.get_wid(word) {
             return wid;
         }
-        let mut lock = self.inner.write().expect("StringTable lock posioned");
+        let mut lock = self.inner_mut.write().expect("StringTable lock posioned");
         let wid = WordId::MIN_USER + lock.vec.len() as u32;
         lock.vec.push(word.to_owned());
         lock.map.insert(word.to_owned(), wid);
         WordId(wid)
     }
     pub fn get_wid(&self, word: &str) -> Option<WordId> {
-        let lock = self.inner.read().expect("StringTable lock posioned");
-        if !lock.chd.is_empty() {
-            let pos = lock.chd.lookup(word);
+        let ro = self.inner_ro.as_ref();
+        if !ro.chd.is_empty() {
+            let pos = ro.chd.lookup(word);
             if let Some(w) = self.get_text(WordId(pos as u32))
                 && w == word
             {
                 return Some(WordId(pos as u32));
             }
         }
+        let lock = self.inner_mut.read().expect("StringTable lock posioned");
         lock.map.get(word).map(|wid| WordId(*wid))
     }
     /// Returns the index-th string in the table as &str
     pub fn get_text(&self, wid: WordId) -> Option<String> {
-        let lock = self.inner.read().expect("StringTable lock posioned");
         match wid.orig() {
             WordOrig::Static => {
-                let offset = lock.offset.get(wid.0 as usize).map(|o| *o as usize)?;
-                let offset_1 = lock
+                let ro = self.inner_ro.as_ref();
+                let offset = ro.offset.get(wid.0 as usize).map(|o| *o as usize)?;
+                let offset_1 = ro
                     .offset
                     .get(wid.0 as usize + 1)
                     .map(|o| *o as usize)
-                    .unwrap_or(lock.buffer.len());
+                    .unwrap_or(ro.buffer.len());
                 let s = offset;
                 let e = offset_1;
-                Some(lock.buffer[s..e].trim_ascii_end().to_owned())
+                Some(ro.buffer[s..e].trim_ascii_end().to_owned())
             }
             WordOrig::User => {
+                let lock = self.inner_mut.read().expect("StringTable lock posioned");
                 let offset = wid.as_offset();
                 lock.vec.get(offset).map(|s| s.to_owned())
             }

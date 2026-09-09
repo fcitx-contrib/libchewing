@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs::File,
     io::{BufRead, BufWriter, Write, stdin},
     path::Path,
@@ -7,9 +7,8 @@ use std::{
 
 use anyhow::Result;
 use chewing::{dictionary::StringTable, model::WordId};
-use fxhash::FxHashMap;
 
-type LocalCounts = (FxHashMap<WordId, u64>, FxHashMap<(WordId, WordId), u64>);
+type LocalCounts = (HashMap<WordId, u64>, HashMap<(WordId, WordId), u64>);
 
 /// Configuration for bigram pruning.
 pub struct PruningConfig {
@@ -88,8 +87,8 @@ pub(crate) fn learn_lm_with_config(
             let string_table = &string_table;
 
             s.spawn(move || {
-                let mut local_uni = FxHashMap::default();
-                let mut local_bi = FxHashMap::default();
+                let mut local_uni = HashMap::default();
+                let mut local_bi = HashMap::default();
 
                 while let Ok(line) = work_recv.recv() {
                     // Process line without collecting into a Vec to avoid allocations
@@ -175,7 +174,7 @@ pub(crate) fn learn_lm_with_config(
         None
     };
 
-    let keep_bigrams: FxHashMap<(WordId, WordId), u64> = if let Some(threshold) = kl_threshold {
+    let keep_bigrams: HashMap<(WordId, WordId), u64> = if let Some(threshold) = kl_threshold {
         d_scores
             .iter()
             .filter(|(_, _, kl)| *kl >= threshold)
