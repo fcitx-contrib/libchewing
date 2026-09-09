@@ -10,7 +10,7 @@ use chewing::{
     conversion::{Decoder, WordLattice},
     dictionary::StringTable,
     lm::{LoadMode, StaticLm},
-    model::Surface,
+    model::Candidate,
 };
 
 pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
@@ -46,14 +46,14 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
                     for hyp in hypotheses {
                         let mut segmented = String::new();
                         for (i, segstr) in hyp
-                            .edges
+                            .candidates
                             .iter()
-                            .map(|e| match e.surface {
-                                Surface::Word(wid) => {
-                                    string_table.get_text(wid).unwrap_or("<unk>".into())
+                            .map(|cand| match cand {
+                                Candidate::Word { wid, .. } => {
+                                    string_table.get_text(*wid).unwrap_or("<unk>".into())
                                 }
-                                Surface::Char(c) => c.to_string(),
-                                Surface::None => "<unk>".into(),
+                                Candidate::Grapheme(c) => c.to_string(),
+                                Candidate::None => "<unk>".into(),
                             })
                             .enumerate()
                         {

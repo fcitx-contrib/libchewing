@@ -5,7 +5,7 @@ use std::{cmp::Ordering, ops::Neg};
 use crate::{
     conversion::word_lattice::{Edge, WordLattice},
     lm::static_lm::StaticLm,
-    model::{Surface, WordId},
+    model::{Candidate, WordId},
 };
 
 #[derive(Clone, Debug)]
@@ -15,7 +15,7 @@ pub struct Decoder {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Hypothesis {
-    pub edges: Vec<Edge>,
+    pub candidates: Vec<Candidate>,
     pub cost: f64,
 }
 
@@ -36,7 +36,7 @@ impl Decoder {
                 .map(|e| {
                     (
                         e.end,
-                        OrderedF64(cost_fun(&self.lm, Surface::None, e.surface, e.boost)),
+                        OrderedF64(cost_fun(&self.lm, Candidate::None, e.cand, e.boost)),
                         *e,
                     )
                 })
@@ -62,7 +62,16 @@ impl Decoder {
             .iter()
             .map(|c| {
                 (
-                    OrderedF64(cost_fun(&self.lm, Surface::None, Surface::Word(c.0), c.1)),
+                    OrderedF64(cost_fun(
+                        &self.lm,
+                        Candidate::None,
+                        Candidate::Word {
+                            wid: c.0,
+                            hist_count: 0,
+                            user_pref: None,
+                        },
+                        c.1,
+                    )),
                     c.0,
                 )
             })
@@ -84,10 +93,10 @@ fn log10_sum_exp(a: f64, b: f64) -> f64 {
     hi + (1.0 + 10f64.powf(lo - hi)).log10()
 }
 
-fn cost_fun(lm: &StaticLm, w1: Surface, w2: Surface, w2boost: i32) -> f64 {
+fn cost_fun(lm: &StaticLm, w1: Candidate, w2: Candidate, w2boost: i32) -> f64 {
     let (wid1, wid2) = match (w1, w2) {
-        (Surface::Word(a), Surface::Word(b)) => (a, b),
-        (Surface::Word(b), _) | (_, Surface::Word(b)) => (WordId(0), b),
+        (Candidate::Word { wid: a, .. }, Candidate::Word { wid: b, .. }) => (a, b),
+        (Candidate::Word { wid: b, .. }, _) | (_, Candidate::Word { wid: b, .. }) => (WordId(0), b),
         _ => return ERROR_FLOOR.neg(),
     };
     // Linear interpolation unigram and bigram
@@ -117,24 +126,24 @@ struct KEntry {
 /// beams;Speech},
 fn find_k_paths<F>(k: u8, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
 where
-    F: Fn(Surface, Surface, i32) -> f64,
+    F: Fn(Candidate, Candidate, i32) -> f64,
 {
     let len = lattice.len;
     let keep = k as usize;
 
     let mut trails: Vec<(usize, Edge)> = vec![];
     // layers[p]: up to k-best (cost, tid) prefixes ending at p with a surface.
-    let mut layers: Vec<Vec<(Surface, Vec<KEntry>)>> = vec![vec![]; len + 1];
+    let mut layers: Vec<Vec<(Candidate, Vec<KEntry>)>> = vec![vec![]; len + 1];
 
     trails.push((0, Edge::default()));
-    layers[0].push((Surface::None, vec![KEntry { cost: 0.0, tid: 0 }]));
+    layers[0].push((Candidate::None, vec![KEntry { cost: 0.0, tid: 0 }]));
 
     for p in 0..len {
         let layer = std::mem::take(&mut layers[p]);
         for (prev, entries) in layer {
             for e in &lattice.edges[p] {
-                let cost = cost_fn(prev, e.surface, e.boost);
-                let keep_list = get_keep_list(&mut layers[e.end as usize], e.surface);
+                let cost = cost_fn(prev, e.cand, e.boost);
+                let keep_list = get_keep_list(&mut layers[e.end as usize], e.cand);
                 for ent in &entries {
                     insert_keep_k(keep_list, ent.cost + cost, ent.tid, e, &mut trails, keep);
                 }
@@ -151,15 +160,15 @@ where
         .into_iter()
         .take(keep)
         .map(|e| Hypothesis {
-            edges: reconstruct(&trails, e.tid),
+            candidates: reconstruct(&trails, e.tid),
             cost: e.cost,
         })
         .collect()
 }
 
 fn get_keep_list<'a>(
-    layer: &'a mut Vec<(Surface, Vec<KEntry>)>,
-    surface: Surface,
+    layer: &'a mut Vec<(Candidate, Vec<KEntry>)>,
+    surface: Candidate,
 ) -> &'a mut Vec<KEntry> {
     if let Some(i) = layer.iter().position(|(s, _)| *s == surface) {
         &mut layer[i].1
@@ -194,18 +203,18 @@ fn insert_keep_k(
     keep_list.truncate(keep);
 }
 
-fn reconstruct(trails: &[(usize, Edge)], tid: usize) -> Vec<Edge> {
+fn reconstruct(trails: &[(usize, Edge)], tid: usize) -> Vec<Candidate> {
     let mut index = tid;
-    let mut edges = vec![];
+    let mut acc = vec![];
     while let Some(&(tid, edge)) = trails.get(index) {
-        edges.push(edge);
+        acc.push(edge.cand);
         index = tid;
         if index == 0 {
             break;
         }
     }
-    edges.reverse();
-    edges
+    acc.reverse();
+    acc
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -231,7 +240,7 @@ impl Ord for OrderedF64 {
 mod test {
     use crate::{
         conversion::{Hypothesis, WordLattice, decoder::find_k_paths, word_lattice::Edge},
-        model::{Surface, WordId},
+        model::{Candidate, WordId},
     };
 
     #[test]
@@ -243,20 +252,20 @@ mod test {
                     Edge {
                         start: 0,
                         end: 1,
-                        surface: Surface::Word(WordId(1)),
+                        cand: Candidate::Word(WordId(1)),
                         boost: 0,
                     },
                     Edge {
                         start: 0,
                         end: 2,
-                        surface: Surface::Word(WordId(3)),
+                        cand: Candidate::Word(WordId(3)),
                         boost: 0,
                     },
                 ],
                 vec![Edge {
                     start: 1,
                     end: 2,
-                    surface: Surface::Word(WordId(2)),
+                    cand: Candidate::Word(WordId(2)),
                     boost: 0,
                 }],
             ],
@@ -266,10 +275,10 @@ mod test {
 
         assert_eq!(
             vec![Hypothesis {
-                edges: vec![Edge {
+                candidates: vec![Edge {
                     start: 0,
                     end: 2,
-                    surface: Surface::Word(WordId(3)),
+                    cand: Candidate::Word(WordId(3)),
                     boost: 0,
                 },],
                 cost: 1.0
@@ -287,26 +296,26 @@ mod test {
                     Edge {
                         start: 0,
                         end: 1,
-                        surface: Surface::Word(WordId(1)),
+                        cand: Candidate::Word(WordId(1)),
                         boost: -1,
                     },
                     Edge {
                         start: 0,
                         end: 1,
-                        surface: Surface::Word(WordId(4)),
+                        cand: Candidate::Word(WordId(4)),
                         boost: -2,
                     },
                     Edge {
                         start: 0,
                         end: 2,
-                        surface: Surface::Word(WordId(3)),
+                        cand: Candidate::Word(WordId(3)),
                         boost: -3,
                     },
                 ],
                 vec![Edge {
                     start: 1,
                     end: 2,
-                    surface: Surface::Word(WordId(2)),
+                    cand: Candidate::Word(WordId(2)),
                     boost: -1,
                 }],
             ],
@@ -316,17 +325,17 @@ mod test {
 
         assert_eq!(
             vec![Hypothesis {
-                edges: vec![
+                candidates: vec![
                     Edge {
                         start: 0,
                         end: 1,
-                        surface: Surface::Word(WordId(1)),
+                        cand: Candidate::Word(WordId(1)),
                         boost: -1,
                     },
                     Edge {
                         start: 1,
                         end: 2,
-                        surface: Surface::Word(WordId(2)),
+                        cand: Candidate::Word(WordId(2)),
                         boost: -1,
                     }
                 ],
@@ -345,10 +354,10 @@ mod test {
 
         assert_eq!(
             vec![Hypothesis {
-                edges: vec![Edge {
+                candidates: vec![Edge {
                     start: 0,
                     end: 0,
-                    surface: Surface::None,
+                    cand: Candidate::None,
                     boost: 0
                 }],
                 cost: 0.0

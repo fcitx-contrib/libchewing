@@ -5,7 +5,7 @@ use log::trace;
 use crate::{
     conversion::{Composition, Gap, Symbol},
     dictionary::{CompositeDict, LookupStrategy},
-    model::{Surface, WordId},
+    model::{Candidate, WordId},
     zhuyin::{Syllable, SyllableVec},
 };
 
@@ -22,10 +22,10 @@ pub struct WordLattice {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Edge {
+pub(crate) struct Edge {
     pub start: u8,
     pub end: u8,
-    pub surface: Surface,
+    pub cand: Candidate,
     pub boost: i32,
 }
 
@@ -52,14 +52,18 @@ impl WordLattice {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
-                        surface: Surface::Word(wid),
+                        cand: Candidate::Word {
+                            wid,
+                            hist_count: 0,
+                            user_pref: None,
+                        },
                         boost: 0,
                     });
                 } else if (end - start) == 1 {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
-                        surface: Surface::Char(substr.chars().next().unwrap()),
+                        cand: Candidate::Grapheme(substr.chars().next().unwrap()),
                         boost: 0,
                     });
                 }
@@ -80,7 +84,7 @@ impl WordLatticeBuilder {
                     edges[start].push(Edge {
                         start: start as u8,
                         end: end as u8,
-                        surface,
+                        cand: surface,
                         boost,
                     });
                 }
@@ -89,11 +93,20 @@ impl WordLatticeBuilder {
         WordLattice { len, edges }
     }
 
-    fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Surface, i32)> {
+    fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Candidate, i32)> {
         self.dict
             .lookup(syllables, self.lookup_strategy)
             .into_iter()
-            .map(|(w, b)| (Surface::Word(w), b))
+            .map(|(wid, b)| {
+                (
+                    Candidate::Word {
+                        wid,
+                        hist_count: 0,
+                        user_pref: None,
+                    },
+                    b,
+                )
+            })
             .collect()
     }
 
@@ -102,11 +115,11 @@ impl WordLatticeBuilder {
         start: usize,
         symbols: &[Symbol],
         com: &Composition,
-    ) -> Vec<(Surface, i32)> {
+    ) -> Vec<(Candidate, i32)> {
         if symbols.len() == 1
             && let Some(sym) = symbols[0].to_char()
         {
-            return vec![(Surface::Char(sym), 0)];
+            return vec![(Candidate::Grapheme(sym), 0)];
         }
 
         if symbols.iter().any(|sym| sym.is_char()) {
@@ -126,7 +139,14 @@ impl WordLatticeBuilder {
 
         for selection in &com.selections {
             if selection.start == start && selection.end == end {
-                return vec![(Surface::Word(selection.wid), 0)];
+                return vec![(
+                    Candidate::Word {
+                        wid: selection.wid,
+                        hist_count: 0,
+                        user_pref: None,
+                    },
+                    0,
+                )];
             }
             if selection.intersect_range(start, end) {
                 // There's a conflicting partial intersecting selection.

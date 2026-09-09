@@ -4,7 +4,7 @@ use super::{Composition, ConversionEngine, Gap, Interval, Outcome};
 use crate::{
     conversion::{Decoder, WordLatticeBuilder},
     dictionary::StringTable,
-    model::Surface,
+    model::Candidate,
 };
 
 /// The default Chewing conversion method.
@@ -26,23 +26,32 @@ impl ChewingEngine {
             .into_iter()
             .map(|hyp| {
                 let cost = hyp.cost;
+                let mut cursor = 0;
                 let intervals = hyp
-                    .edges
+                    .candidates
                     .into_iter()
-                    .map(|edge| Interval {
-                        start: edge.start as usize,
-                        end: edge.end as usize,
-                        is_phrase: matches!(edge.surface, Surface::Word(_)),
-                        text: match edge.surface {
-                            Surface::Word(wid) => self
+                    .map(|cand| match cand {
+                        Candidate::None => ("<unk>".to_string().into_boxed_str(), false),
+                        Candidate::Word { wid, .. } => {
+                            let text = self
                                 .string_table
                                 .get_text(wid)
                                 .unwrap_or("<unk>".into())
                                 .to_string()
-                                .into_boxed_str(),
-                            Surface::Char(ch) => ch.to_string().into_boxed_str(),
-                            Surface::None => "<unk>".to_string().into_boxed_str(),
-                        },
+                                .into_boxed_str();
+                            (text, true)
+                        }
+                        Candidate::Grapheme(ch) => (ch.to_string().into_boxed_str(), false),
+                    })
+                    .map(|(text, is_phrase)| {
+                        let int = Interval {
+                            start: cursor,
+                            end: cursor + text.chars().count(),
+                            is_phrase,
+                            text,
+                        };
+                        cursor = int.end;
+                        int
                     })
                     .fold(vec![], |acc, interval| glue_fn(com, acc, interval));
                 Outcome { intervals, cost }

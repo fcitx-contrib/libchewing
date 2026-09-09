@@ -57,9 +57,19 @@ impl WordId {
 
 /// A possible intepretation of the input state.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Surface {
-    Word(WordId),
-    Char(char),
+pub enum Candidate {
     #[default]
     None,
+    Word {
+        wid: WordId,
+        hist_count: u32,
+        user_pref: Option<i8>,
+    },
+    Grapheme(char),
+}
+
+impl Candidate {
+    pub fn is_word(&self) -> bool {
+        matches!(self, Candidate::Word { .. })
+    }
 }
