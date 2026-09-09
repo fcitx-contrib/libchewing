@@ -54,17 +54,16 @@ pub fn migrate_v3_to_v4(base_path: &Path) -> Result<(), MigrateV4Error> {
                 "{},{},{}",
                 phrase,
                 display_syllables(&syllables),
-                phrase.freq()
+                scale_freq(phrase.freq())
             )?;
         }
 
         for (syllables, phrase) in deleted_dat.entries() {
             writeln!(
                 user_dict,
-                "{},{},-{}",
+                "{},{},-100",
                 phrase,
                 display_syllables(&syllables),
-                phrase.freq()
             )?;
         }
 
@@ -72,6 +71,11 @@ pub fn migrate_v3_to_v4(base_path: &Path) -> Result<(), MigrateV4Error> {
 
         Ok(())
     })
+}
+
+fn scale_freq(value: i32) -> i8 {
+    let normalized = value.clamp(-9_999_999, 9_999_999) as f64;
+    ((normalized + 1.0).abs().log10() * 10.0 * normalized.signum()) as i8
 }
 
 fn display_syllables(syllables: &[Syllable]) -> impl Display {
@@ -83,3 +87,19 @@ fn display_syllables(syllables: &[Syllable]) -> impl Display {
 }
 
 impl_context_error!(pub MigrateV4Error);
+
+#[cfg(test)]
+mod test {
+    use super::scale_freq;
+
+    #[test]
+    fn scale_user_freq() {
+        assert_eq!(70, scale_freq(10_999_999));
+        assert_eq!(70, scale_freq(9_999_999));
+        assert_eq!(47, scale_freq(51384));
+        assert_eq!(20, scale_freq(100));
+        assert_eq!(10, scale_freq(10));
+        assert_eq!(0, scale_freq(0));
+        assert_eq!(-69, scale_freq(-9_999_999));
+    }
+}

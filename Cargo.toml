@@ -41,8 +41,6 @@ tempfile = "3.10.1"
 der = { version = "0.7.7", features = ["std"] }
 log = { workspace = true }
 scoped-error = "0.1.5"
-tempfile.workspace = true
-tinyvec = { version = "1.12.0", features = ["alloc"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

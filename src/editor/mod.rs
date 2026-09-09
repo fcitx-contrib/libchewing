@@ -6,6 +6,7 @@ use std::{
     error::Error,
     fmt::{Debug, Display},
     fs::{self, File},
+    hash::{DefaultHasher, Hash, Hasher},
     io::{BufReader, BufWriter},
     mem,
     path::PathBuf,
@@ -13,7 +14,6 @@ use std::{
 
 use log::{debug, error, info, warn};
 use scoped_error::{ErrorExt, expect_error, impl_context_error};
-use tempfile::NamedTempFile;
 
 pub use self::{abbrev::AbbrevTable, selection::symbol::SymbolSelector};
 use self::{
@@ -32,7 +32,7 @@ use crate::{
     lm::{LoadMode, StaticDict, StaticLm},
     path::SearchPath,
     user::{HistoryDict, UserDict, migrate_v3_to_v4, should_migrate_v3},
-    zhuyin::Syllable,
+    zhuyin::{Syllable, SyllableVec},
 };
 
 mod abbrev;
@@ -661,29 +661,59 @@ impl Editor {
     pub fn notification(&self) -> &str {
         &self.shared.notice_buffer
     }
-    pub fn flush(&self) -> Result<(), EditorError> {
-        // FIXME error handling
-        if let Some(ud) = &self.shared.user_datadir {
+    pub fn flush(&self) {
+        if let Some(ud) = self.shared.user_datadir.clone() {
+            let user_dict = self.shared.user_dict.clone();
+            let hist_dict = self.shared.hist_dict.clone();
+
+            let mut file_options = File::options();
+            file_options.create(true).write(true);
+
+            #[cfg(target_family = "unix")]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                file_options.mode(0o600);
+            }
+            let mut hasher = DefaultHasher::new();
+
+            1.hash(&mut hasher);
             let user_dict_path = ud.join("user_dict.csv");
+            let temp_path = ud.join(format!("{:x}.tmp", hasher.finish()));
+            let temp_file = match file_options.open(&temp_path) {
+                Ok(f) => f,
+                Err(err) => {
+                    error!("Unable to open file: {err}");
+                    return;
+                }
+            };
+            if let Err(err) = user_dict.to_writer(BufWriter::new(temp_file)) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
+            if let Err(err) = fs::rename(&temp_path, &user_dict_path) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
+
+            2.hash(&mut hasher);
             let hist_dict_path = ud.join("history_dict.bin");
-            let temp = NamedTempFile::new_in(&ud)
-                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
-            self.shared
-                .user_dict
-                .to_writer(BufWriter::new(&temp))
-                .unwrap();
-            temp.persist(user_dict_path)
-                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
-            let temp = NamedTempFile::new_in(&ud)
-                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
-            self.shared
-                .hist_dict
-                .to_writer(BufWriter::new(&temp))
-                .unwrap();
-            temp.persist(hist_dict_path)
-                .map_err(|_| EditorError::new(EditorErrorKind::InvalidState))?;
+            let temp_path = ud.join(format!("{:x}.tmp", hasher.finish()));
+            let temp_file = match file_options.open(&temp_path) {
+                Ok(f) => f,
+                Err(err) => {
+                    error!("Unable to open file: {err}");
+                    return;
+                }
+            };
+            if let Err(err) = hist_dict.to_writer(BufWriter::new(temp_file)) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
+            if let Err(err) = fs::rename(&temp_path, &hist_dict_path) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
         }
-        Ok(())
     }
 }
 
@@ -889,20 +919,6 @@ impl SharedState {
     }
 }
 
-#[rustfmt::skip]
-fn is_break_word(word: &str) -> bool {
-    ["是", "的", "了", "不",
-     "也", "而", "你", "我",
-     "他", "與", "它", "她",
-     "其", "就", "和", "或",
-     "們", "性", "員", "子",
-     "上", "下", "中", "內",
-     "外", "化", "者", "家",
-     "兒", "年", "月", "日",
-     "時", "分", "秒", "街",
-     "路", "村", "在"].contains(&word)
-}
-
 fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<Syllable>, String)> {
     debug!("intervals {:?}", intervals);
     let mut pending = String::new();
@@ -915,7 +931,7 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
         }
     };
     // Step 1. collect all intervals
-    for interval in intervals.iter().filter(|it| it.is_phrase) {
+    for interval in intervals.iter().filter(|it| it.len() > 1 && it.is_phrase) {
         let syllables = symbols[interval.start..interval.end]
             .iter()
             .map(|s| s.to_syllable().unwrap())
@@ -923,25 +939,9 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
         let pending = interval.text.clone().into_string();
         collect(syllables, pending);
     }
-    // Step 2. collect all intervals with length one with break words removed
-    for interval in intervals.iter() {
-        if interval.is_phrase && interval.len() == 1 && !is_break_word(&interval.text) {
-            pending.push_str(&interval.text);
-            syllables.extend(
-                symbols[interval.start..interval.end]
-                    .iter()
-                    .map(|s| s.to_syllable().unwrap()),
-            );
-        } else if !pending.is_empty() {
-            collect(mem::take(&mut syllables), mem::take(&mut pending));
-        }
-    }
-    if !pending.is_empty() {
-        collect(mem::take(&mut syllables), mem::take(&mut pending));
-    }
-    // Step 3. collect all intervals with length one including break words
+    // Step 2. collect all intervals with length one including break words
     for interval in intervals {
-        if interval.is_phrase && interval.len() == 1 {
+        if interval.is_phrase && interval.len() == 1 && syllables.len() < SyllableVec::MAX_LEN {
             pending.push_str(&interval.text);
             syllables.extend(
                 symbols[interval.start..interval.end]
@@ -961,7 +961,6 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
 impl BasicEditor for Editor {
     fn process_keyevent(&mut self, key_event: KeyboardEvent) -> EditorKeyBehavior {
         info!("process {}", key_event);
-        self.shared.hist_dict.tick();
         // reset?
         self.shared.notice_buffer.clear();
         if self.shared.last_key_behavior == EditorKeyBehavior::Commit {
@@ -999,8 +998,6 @@ impl BasicEditor for Editor {
         debug!("comp: {:?}", &self.shared.com);
         const DIRTY_THRESHOLD: u16 = 0;
         if self.shared.dirty_level > DIRTY_THRESHOLD {
-            // let _ = self.shared.dict.reopen();
-            // let _ = self.shared.dict.flush();
             let _ = self.flush();
             self.shared.dirty_level = 0;
         }
@@ -2394,8 +2391,6 @@ mod tests {
                     ],
                     "今天".to_string()
                 ),
-                (vec![syl![bpmf::I, bpmf::EH, bpmf::TONE3]], "也".to_string()),
-                (vec![syl![bpmf::SH, bpmf::TONE4]], "是".to_string()),
                 (
                     vec![
                         syl![bpmf::H, bpmf::AU, bpmf::TONE3],

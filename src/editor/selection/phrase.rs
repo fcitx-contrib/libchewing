@@ -253,7 +253,13 @@ impl PhraseSelector {
         if editor.options.sort_candidates_by_frequency {
             return editor.decoder.rank(candidates);
         }
-        candidates.into_iter().map(|(wid, _)| wid).collect()
+        candidates
+            .into_iter()
+            .map(|c| match c {
+                crate::model::Candidate::Word { wid, .. } => wid,
+                _ => unreachable!(),
+            })
+            .collect()
     }
 }
 

@@ -12,7 +12,7 @@ use std::{
 use super::{Bopomofo, BopomofoKind};
 use crate::exn::{Exn, ResultExt};
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub(crate) struct SyllableVec {
     buf: [Syllable; Self::MAX_LEN],
     len: u8,
@@ -57,6 +57,15 @@ impl Ord for SyllableVec {
 impl Hash for SyllableVec {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.as_ref().hash(state);
+    }
+}
+
+impl Debug for SyllableVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SyllableVec")
+            .field("buf", &self.as_ref())
+            .field("len", &self.len)
+            .finish()
     }
 }
 

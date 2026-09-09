@@ -36,7 +36,7 @@ impl Decoder {
                 .map(|e| {
                     (
                         e.end,
-                        OrderedF64(cost_fun(&self.lm, Candidate::None, e.cand, e.boost)),
+                        OrderedF64(cost_fun(&self.lm, Candidate::None, e.cand)),
                         *e,
                     )
                 })
@@ -50,29 +50,22 @@ impl Decoder {
             }
         }
 
-        let paths = find_k_paths(n, &lattice, |w1, w2, w2boost| {
-            cost_fun(&self.lm, w1, w2, w2boost)
-        });
+        let paths = find_k_paths(n, &lattice, |w1, w2| cost_fun(&self.lm, w1, w2));
 
         debug_assert!(!paths.is_empty());
         paths
     }
-    pub fn rank(&self, candidates: Vec<(WordId, i32)>) -> Vec<WordId> {
+    pub fn rank(&self, candidates: Vec<Candidate>) -> Vec<WordId> {
         let mut ranked: Vec<_> = candidates
             .iter()
             .map(|c| {
                 (
-                    OrderedF64(cost_fun(
-                        &self.lm,
-                        Candidate::None,
-                        Candidate::Word {
-                            wid: c.0,
-                            hist_count: 0,
-                            user_pref: None,
-                        },
-                        c.1,
-                    )),
-                    c.0,
+                    OrderedF64(cost_fun(&self.lm, Candidate::None, *c)),
+                    match c {
+                        Candidate::None => WordId(0),
+                        Candidate::Word { wid, .. } => *wid,
+                        Candidate::Grapheme(_) => WordId(0),
+                    },
                 )
             })
             .collect();
@@ -82,8 +75,10 @@ impl Decoder {
 }
 
 const ERROR_FLOOR: f64 = -30.0;
-const MANUAL_BOOST_FACTOR: f64 = 2.0;
-const LOG10_LAMBDA_BIGRAM: f64 = -0.2218487;
+const MANUAL_BOOST_FACTOR: f64 = 5.0;
+const LOG10_LAMBDA_HIST_UNIGRAM: f64 = -0.221849;
+const LOG10_LAMBDA_BASE_UNIGRAM: f64 = -0.30103;
+const LOG10_LAMBDA_BIGRAM: f64 = -0.221849;
 const LOG10_LAMBDA_UNIGRAM: f64 = -0.39794;
 
 #[inline]
@@ -93,20 +88,32 @@ fn log10_sum_exp(a: f64, b: f64) -> f64 {
     hi + (1.0 + 10f64.powf(lo - hi)).log10()
 }
 
-fn cost_fun(lm: &StaticLm, w1: Candidate, w2: Candidate, w2boost: i32) -> f64 {
+fn cost_fun(lm: &StaticLm, w1: Candidate, w2: Candidate) -> f64 {
     let (wid1, wid2) = match (w1, w2) {
         (Candidate::Word { wid: a, .. }, Candidate::Word { wid: b, .. }) => (a, b),
         (Candidate::Word { wid: b, .. }, _) | (_, Candidate::Word { wid: b, .. }) => (WordId(0), b),
         _ => return ERROR_FLOOR.neg(),
     };
+    let (hist_prob, user_pref) = match w2 {
+        Candidate::Word {
+            wid: _,
+            hist_prob,
+            user_pref,
+        } => (hist_prob, user_pref),
+        _ => (f64::NEG_INFINITY, None),
+    };
+    // Linear interpolation base unigram and history unigram
+    let p_uni = log10_sum_exp(
+        LOG10_LAMBDA_BASE_UNIGRAM + lm.unigram(wid2),
+        LOG10_LAMBDA_HIST_UNIGRAM + hist_prob,
+    );
     // Linear interpolation unigram and bigram
     let mixed = log10_sum_exp(
         LOG10_LAMBDA_BIGRAM + lm.bigram(wid1, wid2),
-        LOG10_LAMBDA_UNIGRAM + lm.unigram(wid2),
+        LOG10_LAMBDA_UNIGRAM + p_uni,
     );
     let cost = -mixed;
-    let f = w2boost as f64;
-    let manual_gain = (f.abs() + 1.0).log10() * f.signum();
+    let manual_gain = user_pref.unwrap_or(0) as f64 / 100.0;
     cost - MANUAL_BOOST_FACTOR * manual_gain
 }
 
@@ -126,7 +133,7 @@ struct KEntry {
 /// beams;Speech},
 fn find_k_paths<F>(k: u8, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
 where
-    F: Fn(Candidate, Candidate, i32) -> f64,
+    F: Fn(Candidate, Candidate) -> f64,
 {
     let len = lattice.len;
     let keep = k as usize;
@@ -142,7 +149,7 @@ where
         let layer = std::mem::take(&mut layers[p]);
         for (prev, entries) in layer {
             for e in &lattice.edges[p] {
-                let cost = cost_fn(prev, e.cand, e.boost);
+                let cost = cost_fn(prev, e.cand);
                 let keep_list = get_keep_list(&mut layers[e.end as usize], e.cand);
                 for ent in &entries {
                     insert_keep_k(keep_list, ent.cost + cost, ent.tid, e, &mut trails, keep);
@@ -243,6 +250,14 @@ mod test {
         model::{Candidate, WordId},
     };
 
+    fn word(wid: u32) -> Candidate {
+        Candidate::Word {
+            wid: WordId(wid),
+            hist_prob: 0.0,
+            user_pref: None,
+        }
+    }
+
     #[test]
     fn simple_shortest_path() {
         let lattice = WordLattice {
@@ -250,37 +265,26 @@ mod test {
             edges: vec![
                 vec![
                     Edge {
-                        start: 0,
                         end: 1,
-                        cand: Candidate::Word(WordId(1)),
-                        boost: 0,
+                        cand: word(1),
                     },
                     Edge {
-                        start: 0,
                         end: 2,
-                        cand: Candidate::Word(WordId(3)),
-                        boost: 0,
+                        cand: word(3),
                     },
                 ],
                 vec![Edge {
-                    start: 1,
                     end: 2,
-                    cand: Candidate::Word(WordId(2)),
-                    boost: 0,
+                    cand: word(2),
                 }],
             ],
         };
 
-        let cost_fn = |_w1, _w2, _b| 1.0;
+        let cost_fn = |_w1, _w2| 1.0;
 
         assert_eq!(
             vec![Hypothesis {
-                candidates: vec![Edge {
-                    start: 0,
-                    end: 2,
-                    cand: Candidate::Word(WordId(3)),
-                    boost: 0,
-                },],
+                candidates: vec![word(3),],
                 cost: 1.0
             }],
             find_k_paths(1, &lattice, cost_fn)
@@ -294,52 +298,34 @@ mod test {
             edges: vec![
                 vec![
                     Edge {
-                        start: 0,
                         end: 1,
-                        cand: Candidate::Word(WordId(1)),
-                        boost: -1,
+                        cand: word(1),
                     },
                     Edge {
-                        start: 0,
                         end: 1,
-                        cand: Candidate::Word(WordId(4)),
-                        boost: -2,
+                        cand: word(4),
                     },
                     Edge {
-                        start: 0,
                         end: 2,
-                        cand: Candidate::Word(WordId(3)),
-                        boost: -3,
+                        cand: word(5),
                     },
                 ],
                 vec![Edge {
-                    start: 1,
                     end: 2,
-                    cand: Candidate::Word(WordId(2)),
-                    boost: -1,
+                    cand: word(2),
                 }],
             ],
         };
 
-        let cost_fn = |_w1, _w2, b| -(b as f64);
+        let cost_fn = |_w1, w2| match w2 {
+            Candidate::Word { wid, .. } => wid.0 as f64,
+            _ => f64::INFINITY,
+        };
 
         assert_eq!(
             vec![Hypothesis {
-                candidates: vec![
-                    Edge {
-                        start: 0,
-                        end: 1,
-                        cand: Candidate::Word(WordId(1)),
-                        boost: -1,
-                    },
-                    Edge {
-                        start: 1,
-                        end: 2,
-                        cand: Candidate::Word(WordId(2)),
-                        boost: -1,
-                    }
-                ],
-                cost: 2.0
+                candidates: vec![word(1), word(2),],
+                cost: 3.0
             }],
             find_k_paths(1, &lattice, cost_fn)
         );
@@ -354,15 +340,10 @@ mod test {
 
         assert_eq!(
             vec![Hypothesis {
-                candidates: vec![Edge {
-                    start: 0,
-                    end: 0,
-                    cand: Candidate::None,
-                    boost: 0
-                }],
+                candidates: vec![Candidate::None,],
                 cost: 0.0
             }],
-            find_k_paths(1, &lattice, |_, _, _| 1.0)
+            find_k_paths(1, &lattice, |_, _| 1.0)
         );
     }
 }

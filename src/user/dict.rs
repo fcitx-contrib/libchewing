@@ -37,12 +37,12 @@ struct UserDictInner {
 #[derive(Debug, Clone, Copy)]
 struct UserDictEntry {
     wid: WordId,
-    boost: i32,
+    boost: i8,
 }
 
 impl UserDict {
-    pub const MIN: i32 = -9_999_999;
-    pub const MAX: i32 = 9_999_999;
+    pub const MIN: i8 = -100;
+    pub const MAX: i8 = 100;
 
     /// Returns an empty UserDict
     pub fn new(string_table: StringTable) -> UserDict {
@@ -94,7 +94,7 @@ impl UserDict {
                     .ok_or_else(|| format!("invalid format at line {i}: {line}"))?;
                 let boost = parts
                     .next()
-                    .map(|b| i32::from_str(b).unwrap_or(0).clamp(Self::MIN, Self::MAX))
+                    .map(|b| i8::from_str(b).unwrap_or(0).clamp(Self::MIN, Self::MAX))
                     .unwrap_or(0);
                 let syllables: SyllableVec = parse_syllable_vec(bopomofo.trim())?;
 
@@ -152,7 +152,7 @@ impl UserDict {
         log::debug!("intern {} => {}", word, wid);
         let word_entries = lock.records.entry(syllables.into()).or_default();
         if word_entries.iter().find(|e| e.wid == wid).is_none() {
-            word_entries.push(UserDictEntry { wid, boost: 0 });
+            word_entries.push(UserDictEntry { wid, boost: 10 });
         }
     }
     pub fn boost(&self, syllables: &[Syllable], word: &str) {
@@ -165,7 +165,7 @@ impl UserDict {
         if let Some(pos) = word_entries.iter().position(|e| e.wid == wid) {
             word_entries[pos].boost = (word_entries[pos].boost + 100).clamp(Self::MIN, Self::MAX);
         } else {
-            word_entries.push(UserDictEntry { wid, boost: 100 });
+            word_entries.push(UserDictEntry { wid, boost: 10 });
         }
     }
     pub fn deboost(&self, syllables: &[Syllable], word: &str) {
@@ -176,9 +176,9 @@ impl UserDict {
         let wid = lock.string_table.intern(word);
         let word_entries = lock.records.entry(syllables.into()).or_default();
         if let Some(pos) = word_entries.iter().position(|e| e.wid == wid) {
-            word_entries[pos].boost = (word_entries[pos].boost - 100).clamp(Self::MIN, Self::MAX);
+            word_entries[pos].boost = (word_entries[pos].boost - 10).clamp(Self::MIN, Self::MAX);
         } else {
-            word_entries.push(UserDictEntry { wid, boost: -100 });
+            word_entries.push(UserDictEntry { wid, boost: -10 });
         }
     }
     pub fn remove(&self, syllables: &[Syllable], word: &str) {
@@ -192,7 +192,7 @@ impl UserDict {
             word_entries.remove(pos);
         }
     }
-    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<(WordId, i32)> {
+    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<(WordId, i8)> {
         let lock = self
             .inner
             .read()
@@ -225,7 +225,7 @@ impl UserDict {
             v.into_iter().map(move |ent| {
                 (
                     k.to_vec(),
-                    Phrase::new(st.get_text(ent.wid).unwrap(), ent.boost),
+                    Phrase::new(st.get_text(ent.wid).unwrap(), ent.boost as i32),
                 )
             })
         }))

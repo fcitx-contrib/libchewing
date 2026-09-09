@@ -21,12 +21,10 @@ pub struct WordLattice {
     pub(crate) edges: Vec<Vec<Edge>>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Edge {
-    pub start: u8,
     pub end: u8,
     pub cand: Candidate,
-    pub boost: i32,
 }
 
 impl WordLattice {
@@ -50,21 +48,17 @@ impl WordLattice {
                 let substr = &s[s_start..s_end];
                 if let Some(wid) = find_words(&substr) {
                     edges[start].push(Edge {
-                        start: start as u8,
                         end: end as u8,
                         cand: Candidate::Word {
                             wid,
-                            hist_count: 0,
+                            hist_prob: f64::NEG_INFINITY,
                             user_pref: None,
                         },
-                        boost: 0,
                     });
                 } else if (end - start) == 1 {
                     edges[start].push(Edge {
-                        start: start as u8,
                         end: end as u8,
                         cand: Candidate::Grapheme(substr.chars().next().unwrap()),
-                        boost: 0,
                     });
                 }
             }
@@ -80,12 +74,10 @@ impl WordLatticeBuilder {
         for start in 0..com.symbols.len() {
             let max_end = usize::min(start + SyllableVec::MAX_LEN, com.symbols.len());
             for end in (start + 1)..=max_end {
-                for (surface, boost) in self.find_words(start, &com.symbols[start..end], com) {
+                for cand in self.find_words(start, &com.symbols[start..end], com) {
                     edges[start].push(Edge {
-                        start: start as u8,
                         end: end as u8,
-                        cand: surface,
-                        boost,
+                        cand,
                     });
                 }
             }
@@ -93,33 +85,11 @@ impl WordLatticeBuilder {
         WordLattice { len, edges }
     }
 
-    fn dict_lookup(&self, syllables: &[Syllable]) -> Vec<(Candidate, i32)> {
-        self.dict
-            .lookup(syllables, self.lookup_strategy)
-            .into_iter()
-            .map(|(wid, b)| {
-                (
-                    Candidate::Word {
-                        wid,
-                        hist_count: 0,
-                        user_pref: None,
-                    },
-                    b,
-                )
-            })
-            .collect()
-    }
-
-    fn find_words(
-        &self,
-        start: usize,
-        symbols: &[Symbol],
-        com: &Composition,
-    ) -> Vec<(Candidate, i32)> {
+    fn find_words(&self, start: usize, symbols: &[Symbol], com: &Composition) -> Vec<Candidate> {
         if symbols.len() == 1
             && let Some(sym) = symbols[0].to_char()
         {
-            return vec![(Candidate::Grapheme(sym), 0)];
+            return vec![Candidate::Grapheme(sym)];
         }
 
         if symbols.iter().any(|sym| sym.is_char()) {
@@ -139,14 +109,11 @@ impl WordLatticeBuilder {
 
         for selection in &com.selections {
             if selection.start == start && selection.end == end {
-                return vec![(
-                    Candidate::Word {
-                        wid: selection.wid,
-                        hist_count: 0,
-                        user_pref: None,
-                    },
-                    0,
-                )];
+                return vec![Candidate::Word {
+                    wid: selection.wid,
+                    hist_prob: f64::NEG_INFINITY,
+                    user_pref: None,
+                }];
             }
             if selection.intersect_range(start, end) {
                 // There's a conflicting partial intersecting selection.
@@ -163,6 +130,6 @@ impl WordLatticeBuilder {
             .map(|s| s.to_syllable().unwrap_or_default())
             .collect();
 
-        self.dict_lookup(&syllables)
+        self.dict.lookup(&syllables, self.lookup_strategy)
     }
 }

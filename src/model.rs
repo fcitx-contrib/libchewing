@@ -56,13 +56,13 @@ impl WordId {
 }
 
 /// A possible intepretation of the input state.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Candidate {
     #[default]
     None,
     Word {
         wid: WordId,
-        hist_count: u32,
+        hist_prob: f64,
         user_pref: Option<i8>,
     },
     Grapheme(char),
@@ -71,5 +71,16 @@ pub enum Candidate {
 impl Candidate {
     pub fn is_word(&self) -> bool {
         matches!(self, Candidate::Word { .. })
+    }
+}
+
+impl PartialEq for Candidate {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Candidate::None, Candidate::None) => true,
+            (Candidate::Word { wid: w1, .. }, Candidate::Word { wid: w2, .. }) => w1 == w2,
+            (Candidate::Grapheme(g1), Candidate::Grapheme(g2)) => g1 == g2,
+            _ => false,
+        }
     }
 }

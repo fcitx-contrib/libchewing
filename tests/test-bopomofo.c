@@ -600,7 +600,7 @@ void test_select_with_auto_snapshot()
     chewing_config_set_int(ctx, "chewing.auto_snapshot_selections", 1);
 
     type_keystroke_by_string(ctx, "hk4g4<T><T><T>");
-    ok_preedit_buffer(ctx, "策士");
+    ok_preedit_buffer(ctx, "測是");
 
     chewing_clean_preedit_buf(ctx);
 
@@ -1987,7 +1987,7 @@ void test_KB_HSU_example()
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "sm sxajdwjxfsxajdgscewfhidxfdwjcdrnd");
-    ok_preedit_buffer(ctx, "三歲到五歲的小孩舞蹈時人");
+    ok_preedit_buffer(ctx, "三歲到五歲的小孩舞蹈時任");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "jxl cewjdxl lxjxfdxmjleojcde cekjxfnxljcdve hwjjeoflod");

@@ -1,6 +1,7 @@
 use crate::{
     conversion::{Composition, ConversionEngine, Interval, Outcome},
     dictionary::{CompositeDict, LookupStrategy, StringTable},
+    model::Candidate,
 };
 
 /// Simple engine does not perform any intelligent conversion.
@@ -37,11 +38,13 @@ impl SimpleEngine {
                     .cloned();
                 let phrase_str = phrase.map_or_else(
                     || sym.to_syllable().unwrap().to_string(),
-                    |(wid, _)| {
-                        self.string_table
+                    |cand| match cand {
+                        Candidate::Word { wid, .. } => self
+                            .string_table
                             .get_text(wid)
                             .unwrap_or("".into())
-                            .to_string()
+                            .to_string(),
+                        _ => unreachable!(),
                     },
                 );
                 intervals.push(Interval {

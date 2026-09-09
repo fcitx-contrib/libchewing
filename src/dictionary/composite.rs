@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     dictionary::LookupStrategy,
     lm::StaticDict,
-    model::WordId,
+    model::Candidate,
     user::{HistoryDict, UserDict},
     zhuyin::Syllable,
 };
@@ -38,40 +38,46 @@ impl CompositeDict {
         }
     }
 
-    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<(WordId, i32)> {
+    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<Candidate> {
         // base value
         let mut res: Vec<_> = self
             .inner
             .static_dict
             .lookup(syllables, strategy)
             .into_iter()
-            .map(|w| (w, 0))
+            .map(|wid| (wid, f64::NEG_INFINITY, None))
             .collect();
         // rare boost
         for wid in self.inner.rare_dict.lookup(syllables, strategy) {
-            const RARE_BOOST: i32 = -100000;
-            if let Some(pos) = res.iter().position(|w| w.0 == wid) {
-                res[pos].1 = RARE_BOOST;
+            const RARE_BOOST: i8 = -100;
+            if let Some(pos) = res.iter().position(|cand| cand.0 == wid) {
+                res[pos].2 = Some(RARE_BOOST);
             } else {
-                res.push((wid, RARE_BOOST));
+                res.push((wid, f64::NEG_INFINITY, Some(RARE_BOOST)));
             }
         }
         // history boost
-        for (wid, boost) in self.inner.history_dict.lookup(syllables, strategy) {
-            if let Some(pos) = res.iter().position(|w| w.0 == wid) {
-                res[pos].1 = boost;
+        for (wid, hist_prob) in self.inner.history_dict.lookup(syllables, strategy) {
+            if let Some(pos) = res.iter().position(|cand| cand.0 == wid) {
+                res[pos].1 = hist_prob;
             } else {
-                res.push((wid, boost));
+                res.push((wid, hist_prob, None));
             }
         }
         // user boost
-        for (wid, boost) in self.inner.user_dict.lookup(syllables, strategy) {
+        for (wid, user_pref) in self.inner.user_dict.lookup(syllables, strategy) {
             if let Some(pos) = res.iter().position(|w| w.0 == wid) {
-                res[pos].1 = boost;
+                res[pos].2 = Some(user_pref);
             } else {
-                res.push((wid, boost));
+                res.push((wid, f64::NEG_INFINITY, Some(user_pref)));
             }
         }
-        res
+        res.into_iter()
+            .map(|cand| Candidate::Word {
+                wid: cand.0,
+                hist_prob: cand.1,
+                user_pref: cand.2,
+            })
+            .collect()
     }
 }

@@ -31,7 +31,6 @@ struct HistoryDictInner {
     string_table: StringTable,
     half_life: u32,
     generation: u64,
-    count: u32,
     records: BTreeMap<SyllableVec, Vec<HistoryDictEntry>>,
 }
 
@@ -44,6 +43,7 @@ struct HistoryDictEntry {
 
 impl HistoryDict {
     pub const HALF_LIFE: u32 = 50_000;
+    pub const COLD_THRESHOLD: f64 = 2000.0;
 
     /// Returns an empty HistoryDict
     pub fn new(string_table: StringTable) -> HistoryDict {
@@ -52,7 +52,6 @@ impl HistoryDict {
                 string_table,
                 half_life: Self::HALF_LIFE,
                 generation: 0,
-                count: 0,
                 records: BTreeMap::new(),
             })),
         }
@@ -131,7 +130,6 @@ impl HistoryDict {
                     string_table,
                     half_life,
                     generation,
-                    count,
                     records,
                 })),
             })
@@ -153,7 +151,7 @@ impl HistoryDict {
             encoder.write_u32(0)?;
             encoder.write_u32(lock.half_life)?;
             encoder.write_u64(lock.generation)?;
-            encoder.write_u32(lock.count)?;
+            encoder.write_u32(lock.records.len() as u32)?;
 
             for (syllables, entries) in lock.records.iter() {
                 for entry in entries {
@@ -173,18 +171,12 @@ impl HistoryDict {
             Ok(())
         })
     }
-    pub(crate) fn tick(&self) {
-        let mut lock = self
-            .inner
-            .write()
-            .expect("Unable to acquire HistoryDict writer lock");
-        lock.generation += 1;
-    }
     pub(crate) fn observe(&self, syllables: &[Syllable], word: &str) {
         let mut lock = self
             .inner
             .write()
             .expect("Unable to acquire HistoryDict writer lock");
+        lock.generation += 1;
         let wid = lock.string_table.intern(word);
         let generation = lock.generation;
         let hist_entries = lock.records.entry(syllables.into()).or_default();
@@ -209,15 +201,17 @@ impl HistoryDict {
             hist_entries.remove(pos);
         }
     }
+    // Return all words and their history based unigram log10 prob
     pub(crate) fn lookup(
         &self,
         syllables: &[Syllable],
         strategy: LookupStrategy,
-    ) -> Vec<(WordId, i32)> {
+    ) -> Vec<(WordId, f64)> {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire HistoryDict reader lock");
+        let total = lock.generation as f64 + Self::COLD_THRESHOLD;
         match strategy {
             LookupStrategy::Standard => lock
                 .records
@@ -228,7 +222,8 @@ impl HistoryDict {
                         .map(|e| {
                             let count =
                                 true_count(lock.half_life, lock.generation, e.seen, e.epoch);
-                            (e.wid, count as i32)
+                            let log10prob = (count as f64 / total).log10();
+                            (e.wid, log10prob)
                         })
                         .collect()
                 })
@@ -244,7 +239,8 @@ impl HistoryDict {
                         entries.iter().map(|e| {
                             let count =
                                 true_count(lock.half_life, lock.generation, e.seen, e.epoch);
-                            (e.wid, count as i32)
+                            let log10prob = (count as f64 / total).log10();
+                            (e.wid, log10prob)
                         })
                     })
                     .collect()
