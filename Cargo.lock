@@ -126,6 +126,7 @@ dependencies = [
  "clap_mangen",
  "crossbeam-channel",
  "env_logger",
+ "scoped-error",
  "zhconv",
 ]
 

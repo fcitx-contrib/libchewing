@@ -5,7 +5,7 @@ mod dump;
 mod flags;
 mod index;
 mod info;
-mod init_database;
+mod list;
 mod lm;
 
 fn main() -> Result<()> {
@@ -23,8 +23,8 @@ fn main() -> Result<()> {
     }
     let cli = flags::ChewingCli::parse();
     match cli.subcommand {
-        flags::ChewingCliCmd::InitDatabase(args) => init_database::run(args)?,
         flags::ChewingCliCmd::Info(args) => info::run(args)?,
+        flags::ChewingCliCmd::List(args) => list::run(args)?,
         flags::ChewingCliCmd::Dump(args) => dump::run(args)?,
         flags::ChewingCliCmd::Index(sub) => match sub {
             flags::Index::CreateDict(args) => {
