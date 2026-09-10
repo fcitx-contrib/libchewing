@@ -61,6 +61,10 @@ pub(crate) enum Lm {
     Segment(LmSegment),
     /// Learn unigram and bigram language model and output ARPA file
     Learn(LmLearn),
+    /// Prepare data for evaluation
+    PrepareEval(LmPrepareEval),
+    /// Evaluate the conversion accuracy of a model
+    Eval(LmEval),
 }
 
 #[derive(Args)]
@@ -87,6 +91,33 @@ pub(crate) struct LmLearn {
     pub(crate) words_txt: PathBuf,
     /// Path to the output ARPA file (static_lm.arpa)
     pub(crate) output: PathBuf,
+    /// Minimum bigram count to consider (hard floor).
+    #[arg(default_value_t = 10)]
+    pub min_count: u64,
+    /// Fraction of bigrams to keep after pruning (e.g. 0.2 = keep 20%).
+    /// If `None`, falls back to the min_count threshold only.
+    pub(crate) keep_fraction: Option<f64>,
+}
+
+#[derive(Args)]
+pub(crate) struct LmPrepareEval {
+    /// Path to the dictionary source file (tsi.csv)
+    pub(crate) tsi_csv: PathBuf,
+    /// Path to the rare word source file (rare.csv)
+    pub(crate) rare_csv: PathBuf,
+}
+
+#[derive(Args)]
+pub(crate) struct LmEval {
+    /// Model file search path
+    pub(crate) search_path: String,
+    /// File name of the language model
+    pub(crate) model_bin: String,
+    /// Decoder hyperparameter alpha
+    pub(crate) alpha: f64,
+    /// Verbose output
+    #[arg(short, long, default_value_t = false)]
+    pub(crate) verbose: bool,
 }
 
 #[derive(Args)]

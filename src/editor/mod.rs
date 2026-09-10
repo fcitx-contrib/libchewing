@@ -277,7 +277,10 @@ impl Editor {
                 lookup_strategy: LookupStrategy::Standard,
             };
 
-            let decoder = Decoder { lm };
+            let decoder = Decoder {
+                lm,
+                alpha: Decoder::ALPHA,
+            };
 
             let conversion_engine = Box::new(ChewingEngine {
                 word_lattice_builder,
@@ -1826,7 +1829,10 @@ impl EditorBuilder {
             lookup_strategy: self.lookup_strategy,
         };
 
-        let decoder = Decoder { lm: self.lm };
+        let decoder = Decoder {
+            lm: self.lm,
+            alpha: Decoder::ALPHA,
+        };
         let conversion_engine = Box::new(ChewingEngine {
             word_lattice_builder,
             decoder: decoder.clone(),

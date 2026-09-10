@@ -19,7 +19,10 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
 
     let stdin = stdin().lock();
 
-    let decoder = Decoder { lm };
+    let decoder = Decoder {
+        lm,
+        alpha: Decoder::ALPHA,
+    };
 
     let n_threads = thread::available_parallelism()?.get();
     let (work_send, work_recv) = crossbeam_channel::bounded::<String>(n_threads * 2);
@@ -64,9 +67,6 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
                                 segmented.push_str(&segstr);
                             }
                         }
-                        result_send
-                            .send(segmented)
-                            .expect("unable to send output to stdout");
                     }
                 }
             });

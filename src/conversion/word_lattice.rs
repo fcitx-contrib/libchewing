@@ -9,7 +9,7 @@ use crate::{
     zhuyin::{Syllable, SyllableVec},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WordLatticeBuilder {
     pub dict: CompositeDict,
     pub lookup_strategy: LookupStrategy,

@@ -10,8 +10,10 @@
 
 use std::{
     collections::BTreeMap,
-    io::{Read, Write},
+    fs::File,
+    io::{BufReader, Read, Write},
     ops::Neg,
+    path::Path,
     sync::Arc,
 };
 
@@ -109,6 +111,13 @@ impl StaticLm {
                 cols: ColStorage::Decoded(Box::new([])),
             }),
         }
+    }
+
+    pub fn open<P: AsRef<Path>>(path: P, mode: LoadMode) -> Result<StaticLm, StaticLmError> {
+        expect_error("Failed to open static language model", || {
+            let reader = BufReader::new(File::open(path)?);
+            Ok(Self::from_reader(reader, mode)?)
+        })
     }
 
     pub fn from_reader<R>(reader: R, mode: LoadMode) -> Result<StaticLm, StaticLmError>

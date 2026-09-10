@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
 
+use crate::lm::PruningConfig;
+
 mod dump;
 mod flags;
 mod index;
@@ -38,6 +40,12 @@ fn main() -> Result<()> {
             flags::Lm::Clean => {
                 lm::clean()?;
             }
+            flags::Lm::PrepareEval(args) => {
+                lm::prepare_eval(&args.tsi_csv, &args.rare_csv)?;
+            }
+            flags::Lm::Eval(args) => {
+                lm::eval(&args.search_path, &args.model_bin, args.alpha, args.verbose)?;
+            }
             flags::Lm::Compile(args) => {
                 lm::compile_lm(&args.lm_arpa, &args.words_txt, &args.output)?;
             }
@@ -45,7 +53,11 @@ fn main() -> Result<()> {
                 lm::segment(&args.static_lm, &args.words_txt)?;
             }
             flags::Lm::Learn(args) => {
-                lm::learn_lm(&args.words_txt, &args.output)?;
+                let config = PruningConfig {
+                    min_count: args.min_count,
+                    keep_fraction: args.keep_fraction,
+                };
+                lm::learn_lm(&args.words_txt, &args.output, &config)?;
             }
         },
     }

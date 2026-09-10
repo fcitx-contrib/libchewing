@@ -1059,10 +1059,10 @@ void test_Tab_at_the_end()
     ok_preedit_buffer(ctx, "測試一下");
 
     type_keystroke_by_string(ctx, "<T>");
-    ok_preedit_buffer(ctx, "測試一下");
-
-    type_keystroke_by_string(ctx, "<T>");
     ok_preedit_buffer(ctx, "測試儀下");
+
+    type_keystroke_by_string(ctx, "<T><T>");
+    ok_preedit_buffer(ctx, "測試一夏");
 
     chewing_delete(ctx);
 }
@@ -1991,7 +1991,7 @@ void test_KB_HSU_example()
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "jxl cewjdxl lxjxfdxmjleojcde cekjxfnxljcdve hwjjeoflod");
-    ok_preedit_buffer(ctx, "忠孝東路五段六十一項舞弄十七號酒樓");
+    ok_preedit_buffer(ctx, "忠孝東路五段六十一巷五弄十七號酒樓");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "tidxm dgsrndgxl hnfgxaj");

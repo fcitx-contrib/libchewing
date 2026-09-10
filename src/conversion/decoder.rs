@@ -11,6 +11,8 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct Decoder {
     pub lm: StaticLm,
+    /// Bigram to unigram back-off weight
+    pub alpha: f64,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -20,6 +22,8 @@ pub struct Hypothesis {
 }
 
 impl Decoder {
+    pub const ALPHA: f64 = 0.6;
+
     pub fn decoden(&self, mut lattice: WordLattice, n: u8) -> Vec<Hypothesis> {
         if lattice.edges.is_empty() {
             return vec![Hypothesis::default()];
@@ -36,7 +40,7 @@ impl Decoder {
                 .map(|e| {
                     (
                         e.end,
-                        OrderedF64(cost_fun(&self.lm, Candidate::None, e.cand)),
+                        OrderedF64(self.cost_fun(Candidate::None, e.cand)),
                         *e,
                     )
                 })
@@ -50,7 +54,7 @@ impl Decoder {
             }
         }
 
-        let paths = find_k_paths(n, &lattice, |w1, w2| cost_fun(&self.lm, w1, w2));
+        let paths = find_k_paths(n, &lattice, |w1, w2| self.cost_fun(w1, w2));
 
         debug_assert!(!paths.is_empty());
         paths
@@ -60,7 +64,7 @@ impl Decoder {
             .iter()
             .map(|c| {
                 (
-                    OrderedF64(cost_fun(&self.lm, Candidate::None, *c)),
+                    OrderedF64(self.cost_fun(Candidate::None, *c)),
                     match c {
                         Candidate::None => WordId(0),
                         Candidate::Word { wid, .. } => *wid,
@@ -72,49 +76,50 @@ impl Decoder {
         ranked.sort_unstable_by_key(|&(cost, _)| cost);
         ranked.into_iter().map(|(_, w)| w).collect()
     }
+    fn cost_fun(&self, w1: Candidate, w2: Candidate) -> f64 {
+        let (wid1, wid2) = match (w1, w2) {
+            (Candidate::Word { wid: a, .. }, Candidate::Word { wid: b, .. }) => (a, b),
+            (Candidate::Word { wid: b, .. }, _) | (_, Candidate::Word { wid: b, .. }) => {
+                (WordId(0), b)
+            }
+            _ => return ERROR_FLOOR.neg(),
+        };
+        let (hist_prob, user_pref) = match w2 {
+            Candidate::Word {
+                wid: _,
+                hist_prob,
+                user_pref,
+            } => (hist_prob, user_pref),
+            _ => (f64::NEG_INFINITY, None),
+        };
+        // Linear interpolation base unigram and history unigram
+        let p_uni = log10_sum_exp(
+            LOG10_LAMBDA_BASE_UNIGRAM + self.lm.unigram(wid2),
+            LOG10_LAMBDA_HIST_UNIGRAM + hist_prob,
+        );
+        // Linear interpolation unigram and bigram
+        let bigram_weight = self.alpha.log10();
+        let unigram_weight = (1.0 - self.alpha).log10();
+        let mixed = log10_sum_exp(
+            bigram_weight + self.lm.bigram(wid1, wid2),
+            unigram_weight + p_uni,
+        );
+        let cost = -mixed;
+        let manual_gain = user_pref.unwrap_or(0) as f64 / 100.0;
+        cost - MANUAL_BOOST_FACTOR * manual_gain
+    }
 }
 
 const ERROR_FLOOR: f64 = -30.0;
 const MANUAL_BOOST_FACTOR: f64 = 5.0;
 const LOG10_LAMBDA_HIST_UNIGRAM: f64 = -0.221849;
 const LOG10_LAMBDA_BASE_UNIGRAM: f64 = -0.30103;
-const LOG10_LAMBDA_BIGRAM: f64 = -0.221849;
-const LOG10_LAMBDA_UNIGRAM: f64 = -0.39794;
 
 #[inline]
 fn log10_sum_exp(a: f64, b: f64) -> f64 {
     let hi = a.max(b);
     let lo = a.min(b);
     hi + (1.0 + 10f64.powf(lo - hi)).log10()
-}
-
-fn cost_fun(lm: &StaticLm, w1: Candidate, w2: Candidate) -> f64 {
-    let (wid1, wid2) = match (w1, w2) {
-        (Candidate::Word { wid: a, .. }, Candidate::Word { wid: b, .. }) => (a, b),
-        (Candidate::Word { wid: b, .. }, _) | (_, Candidate::Word { wid: b, .. }) => (WordId(0), b),
-        _ => return ERROR_FLOOR.neg(),
-    };
-    let (hist_prob, user_pref) = match w2 {
-        Candidate::Word {
-            wid: _,
-            hist_prob,
-            user_pref,
-        } => (hist_prob, user_pref),
-        _ => (f64::NEG_INFINITY, None),
-    };
-    // Linear interpolation base unigram and history unigram
-    let p_uni = log10_sum_exp(
-        LOG10_LAMBDA_BASE_UNIGRAM + lm.unigram(wid2),
-        LOG10_LAMBDA_HIST_UNIGRAM + hist_prob,
-    );
-    // Linear interpolation unigram and bigram
-    let mixed = log10_sum_exp(
-        LOG10_LAMBDA_BIGRAM + lm.bigram(wid1, wid2),
-        LOG10_LAMBDA_UNIGRAM + p_uni,
-    );
-    let cost = -mixed;
-    let manual_gain = user_pref.unwrap_or(0) as f64 / 100.0;
-    cost - MANUAL_BOOST_FACTOR * manual_gain
 }
 
 #[derive(Debug, Clone, Copy)]

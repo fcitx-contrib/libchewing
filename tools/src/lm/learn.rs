@@ -11,7 +11,7 @@ use chewing::{dictionary::StringTable, model::WordId};
 type LocalCounts = (HashMap<WordId, u64>, HashMap<(WordId, WordId), u64>);
 
 /// Configuration for bigram pruning.
-pub struct PruningConfig {
+pub(crate) struct PruningConfig {
     /// Minimum bigram count to consider (hard floor).
     pub min_count: u64,
     /// Fraction of bigrams to keep after pruning (e.g. 0.2 = keep 20%).
@@ -63,15 +63,7 @@ fn compute_d_scores(
     scores
 }
 
-pub(crate) fn learn_lm(words: &Path, output: &Path) -> Result<()> {
-    learn_lm_with_config(words, output, &PruningConfig::default())
-}
-
-pub(crate) fn learn_lm_with_config(
-    words: &Path,
-    output: &Path,
-    config: &PruningConfig,
-) -> Result<()> {
+pub(crate) fn learn_lm(words: &Path, output: &Path, config: &PruningConfig) -> Result<()> {
     let string_table = StringTable::open_txt(words)?;
 
     let stdin = stdin();
