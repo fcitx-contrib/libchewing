@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use super::{Composition, ConversionEngine, Gap, Interval, Outcome};
 use crate::{
-    conversion::{Decoder, WordLatticeBuilder},
+    conversion::{Decoder, LatticeBuilder},
     dictionary::StringTable,
     model::Candidate,
 };
@@ -10,7 +10,7 @@ use crate::{
 /// The default Chewing conversion method.
 #[derive(Debug)]
 pub struct ChewingEngine {
-    pub word_lattice_builder: WordLatticeBuilder,
+    pub word_lattice_builder: LatticeBuilder,
     pub decoder: Decoder,
     pub string_table: StringTable,
 }
@@ -96,8 +96,7 @@ fn glue_fn(com: &Composition, mut acc: Vec<Interval>, interval: Interval) -> Vec
 mod tests {
     use crate::{
         conversion::{
-            ChewingEngine, Composition, Decoder, Gap, Interval, Selection, Symbol,
-            WordLatticeBuilder,
+            ChewingEngine, Composition, Decoder, Gap, Interval, LatticeBuilder, Selection, Symbol,
         },
         dictionary::{CompositeDict, LookupStrategy, StringTable},
         lm::{StaticDict, StaticLm},
@@ -145,7 +144,7 @@ mod tests {
     fn convert_simple_chinese_composition() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict,
             lookup_strategy: LookupStrategy::Standard,
         };
@@ -196,7 +195,7 @@ mod tests {
     fn convert_chinese_composition_with_breaks() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict,
             lookup_strategy: LookupStrategy::Standard,
         };
@@ -261,7 +260,7 @@ mod tests {
     fn convert_chinese_composition_with_good_selection() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict,
             lookup_strategy: LookupStrategy::Standard,
         };
@@ -318,7 +317,7 @@ mod tests {
     fn convert_chinese_composition_with_substring_selection() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict,
             lookup_strategy: LookupStrategy::Standard,
         };
@@ -358,7 +357,7 @@ mod tests {
     fn multiple_single_word_selection() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict,
             lookup_strategy: LookupStrategy::Standard,
         };
@@ -413,7 +412,7 @@ mod tests {
     fn convert_cycle_alternatives() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict,
             lookup_strategy: LookupStrategy::Standard,
         };
@@ -495,7 +494,7 @@ mod tests {
     fn convert_collapses_equal_text_resegmentations() {
         let string_table = StringTable::new();
         let dict = test_dictionary(string_table.clone());
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict,
             lookup_strategy: LookupStrategy::Standard,
         };

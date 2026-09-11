@@ -3,7 +3,7 @@
 use std::{cmp::Ordering, ops::Neg};
 
 use crate::{
-    conversion::word_lattice::{Edge, WordLattice},
+    conversion::word_lattice::{Edge, Lattice},
     lm::static_lm::StaticLm,
     model::{Candidate, WordId},
 };
@@ -24,7 +24,7 @@ pub struct Hypothesis {
 impl Decoder {
     pub const ALPHA: f64 = 0.6;
 
-    pub fn decoden(&self, mut lattice: WordLattice, n: u8) -> Vec<Hypothesis> {
+    pub fn decoden(&self, mut lattice: Lattice, n: u8) -> Vec<Hypothesis> {
         if lattice.edges.is_empty() {
             return vec![Hypothesis::default()];
         }
@@ -136,7 +136,7 @@ struct KEntry {
 /// Signal Processing, Albuquerque, NM, USA, 1990, pp. 81-84 vol.1, doi:
 /// 10.1109/ICASSP.1990.115542. keywords: {Natural languages;Acoustic
 /// beams;Speech},
-fn find_k_paths<F>(k: u8, lattice: &WordLattice, cost_fn: F) -> Vec<Hypothesis>
+fn find_k_paths<F>(k: u8, lattice: &Lattice, cost_fn: F) -> Vec<Hypothesis>
 where
     F: Fn(Candidate, Candidate) -> f64,
 {
@@ -251,7 +251,7 @@ impl Ord for OrderedF64 {
 #[cfg(test)]
 mod test {
     use crate::{
-        conversion::{Hypothesis, WordLattice, decoder::find_k_paths, word_lattice::Edge},
+        conversion::{Hypothesis, Lattice, decoder::find_k_paths, word_lattice::Edge},
         model::{Candidate, WordId},
     };
 
@@ -265,7 +265,7 @@ mod test {
 
     #[test]
     fn simple_shortest_path() {
-        let lattice = WordLattice {
+        let lattice = Lattice {
             len: 2,
             edges: vec![
                 vec![
@@ -298,7 +298,7 @@ mod test {
 
     #[test]
     fn multi_edge_shortest_path() {
-        let lattice = WordLattice {
+        let lattice = Lattice {
             len: 2,
             edges: vec![
                 vec![
@@ -338,7 +338,7 @@ mod test {
 
     #[test]
     fn decode_empty_lattice() {
-        let lattice = WordLattice {
+        let lattice = Lattice {
             len: 0,
             edges: vec![],
         };

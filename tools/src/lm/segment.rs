@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use chewing::{
-    conversion::{Decoder, WordLattice},
+    conversion::{Decoder, Lattice},
     dictionary::StringTable,
     lm::{LoadMode, StaticLm},
     model::Candidate,
@@ -44,7 +44,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
                     let Ok(line) = work_recv.recv() else {
                         return;
                     };
-                    let lattice = WordLattice::from_str(&line, |s| string_table.get_wid(s));
+                    let lattice = Lattice::from_str(&line, |s| string_table.get_wid(s));
                     let hypotheses = decoder.decoden(lattice, 1);
                     for hyp in hypotheses {
                         let mut segmented = String::new();

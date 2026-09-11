@@ -10,13 +10,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct WordLatticeBuilder {
+pub struct LatticeBuilder {
     pub dict: CompositeDict,
     pub lookup_strategy: LookupStrategy,
 }
 
 #[derive(Debug)]
-pub struct WordLattice {
+pub struct Lattice {
     pub(crate) len: usize,
     pub(crate) edges: Vec<Vec<Edge>>,
 }
@@ -27,8 +27,8 @@ pub(crate) struct Edge {
     pub cand: Candidate,
 }
 
-impl WordLattice {
-    pub fn from_str<F>(s: &str, find_words: F) -> WordLattice
+impl Lattice {
+    pub fn from_str<F>(s: &str, find_words: F) -> Lattice
     where
         F: Fn(&str) -> Option<WordId>,
     {
@@ -63,12 +63,12 @@ impl WordLattice {
                 }
             }
         }
-        WordLattice { len, edges }
+        Lattice { len, edges }
     }
 }
 
-impl WordLatticeBuilder {
-    pub(crate) fn to_lattice(&self, com: &Composition) -> WordLattice {
+impl LatticeBuilder {
+    pub fn to_lattice(&self, com: &Composition) -> Lattice {
         let len = com.len();
         let mut edges = vec![vec![]; len];
         for start in 0..com.symbols.len() {
@@ -82,7 +82,7 @@ impl WordLatticeBuilder {
                 }
             }
         }
-        WordLattice { len, edges }
+        Lattice { len, edges }
     }
 
     fn find_words(&self, start: usize, symbols: &[Symbol], com: &Composition) -> Vec<Candidate> {

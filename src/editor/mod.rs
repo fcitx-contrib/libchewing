@@ -23,8 +23,8 @@ use self::{
 };
 use crate::{
     conversion::{
-        ChewingEngine, ConversionEngine, Decoder, Interval, Outcome, Selection, SimpleEngine,
-        Symbol, WordLatticeBuilder, full_width_symbol_input, special_symbol_input,
+        ChewingEngine, ConversionEngine, Decoder, Interval, LatticeBuilder, Outcome, Selection,
+        SimpleEngine, Symbol, full_width_symbol_input, special_symbol_input,
     },
     dictionary::{CompositeDict, LookupStrategy, StringTable},
     exn::{Exn, ResultExt},
@@ -272,7 +272,7 @@ impl Editor {
             let composite_dict =
                 CompositeDict::new(static_dict, rare_dict, hist_dict.clone(), user_dict.clone());
 
-            let word_lattice_builder = WordLatticeBuilder {
+            let word_lattice_builder = LatticeBuilder {
                 dict: composite_dict.clone(),
                 lookup_strategy: LookupStrategy::Standard,
             };
@@ -396,7 +396,7 @@ impl Editor {
                     dict: self.shared.dict.clone(),
                 }),
                 ConversionEngineKind::ChewingEngine => Box::new(ChewingEngine {
-                    word_lattice_builder: WordLatticeBuilder {
+                    word_lattice_builder: LatticeBuilder {
                         dict: self.shared.dict.clone(),
                         lookup_strategy: LookupStrategy::Standard,
                     },
@@ -404,7 +404,7 @@ impl Editor {
                     string_table: self.shared.string_table.clone(),
                 }),
                 ConversionEngineKind::FuzzyChewingEngine => Box::new(ChewingEngine {
-                    word_lattice_builder: WordLatticeBuilder {
+                    word_lattice_builder: LatticeBuilder {
                         dict: self.shared.dict.clone(),
                         lookup_strategy: LookupStrategy::FuzzyPartialPrefix,
                     },
@@ -1820,7 +1820,7 @@ impl EditorBuilder {
             self.user_dict.clone(),
         );
 
-        let word_lattice_builder = WordLatticeBuilder {
+        let word_lattice_builder = LatticeBuilder {
             dict: dict.clone(),
             lookup_strategy: self.lookup_strategy,
         };

@@ -9,7 +9,7 @@ pub use self::chewing::ChewingEngine;
 pub use self::decoder::{Decoder, Hypothesis};
 pub use self::simple::SimpleEngine;
 pub(crate) use self::symbol::{full_width_symbol_input, special_symbol_input};
-pub use self::word_lattice::{WordLattice, WordLatticeBuilder};
+pub use self::word_lattice::{Lattice, LatticeBuilder};
 use crate::{model::WordId, zhuyin::Syllable};
 
 mod chewing;

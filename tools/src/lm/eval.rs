@@ -5,9 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use chewing::{
-    conversion::{
-        ChewingEngine, Composition, ConversionEngine, Decoder, Symbol, WordLatticeBuilder,
-    },
+    conversion::{ChewingEngine, Composition, ConversionEngine, Decoder, LatticeBuilder, Symbol},
     dictionary::{CompositeDict, LookupStrategy, StringTable},
     lm::{LoadMode, StaticDict, StaticLm},
     path::SearchPath,
@@ -39,7 +37,7 @@ pub(crate) fn eval(search_path: &str, model_bin: &str, alpha: f64, verbose: bool
 
     let dict = CompositeDict::new(static_dict, rare_dict, history_dict, user_dict);
 
-    let lattice_builder = WordLatticeBuilder {
+    let lattice_builder = LatticeBuilder {
         dict,
         lookup_strategy: LookupStrategy::Standard,
     };
