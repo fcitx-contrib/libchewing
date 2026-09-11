@@ -21,7 +21,7 @@ use super::{
     BuildDictionaryError, Dictionary, DictionaryBuilder, DictionaryInfo, Entries, LookupStrategy,
     Phrase,
 };
-use crate::{dictionary::DictionaryUsage, exn::ResultExt, zhuyin::Syllable};
+use crate::{exn::ResultExt, zhuyin::Syllable};
 
 const DICT_FORMAT_VERSION: u8 = 0;
 
@@ -416,10 +416,6 @@ impl Dictionary for Trie {
     fn path(&self) -> Option<&Path> {
         self.path.as_ref().map(|p| p as &Path)
     }
-
-    fn set_usage(&mut self, usage: DictionaryUsage) {
-        self.info.usage = usage;
-    }
 }
 
 fn context_specific<T: EncodeValue + Tagged>(
@@ -450,7 +446,6 @@ struct DictionaryInfoRef<'a> {
     license: Utf8StringRef<'a>,
     version: Utf8StringRef<'a>,
     software: Utf8StringRef<'a>,
-    usage: DictionaryUsage,
 }
 
 impl From<DictionaryInfoRef<'_>> for DictionaryInfo {
@@ -461,7 +456,6 @@ impl From<DictionaryInfoRef<'_>> for DictionaryInfo {
             license: value.license.into(),
             version: value.version.into(),
             software: value.software.into(),
-            usage: value.usage.into(),
         }
     }
 }
@@ -474,7 +468,6 @@ impl DictionaryInfoRef<'_> {
             license: Utf8StringRef::new(&info.license).unwrap(),
             version: Utf8StringRef::new(&info.version).unwrap(),
             software: Utf8StringRef::new(&info.software).unwrap(),
-            usage: info.usage,
         }
     }
 }
@@ -491,10 +484,9 @@ impl<'a> DecodeValue<'a> for DictionaryInfoRef<'a> {
             let license = reader.decode()?;
             let version = reader.decode()?;
             let software = reader.decode()?;
-            let raw_usage = reader
+            let _raw_usage = reader
                 .context_specific(TagNumber::N0, TagMode::Explicit)?
                 .unwrap_or(0);
-            let usage = DictionaryUsage::from(raw_usage);
             // consume the remaining unknown data
             let _ = reader.read_slice(reader.remaining_len());
             Ok(DictionaryInfoRef {
@@ -503,7 +495,6 @@ impl<'a> DecodeValue<'a> for DictionaryInfoRef<'a> {
                 license,
                 version,
                 software,
-                usage,
             })
         })
     }
@@ -913,11 +904,6 @@ impl TrieBuilder {
         node_id
     }
 
-    /// Set the intended usage of this trie dictionary.
-    pub fn set_usage(&mut self, usage: DictionaryUsage) {
-        self.info.usage = usage;
-    }
-
     /// Writes the dictionary to an output stream and returns the number of
     /// bytes written.
     ///
@@ -1217,8 +1203,8 @@ mod tests {
     use super::{Trie, TrieBuilder};
     use crate::{
         dictionary::{
-            Dictionary, DictionaryBuilder, DictionaryInfo, DictionaryUsage, LookupStrategy, Phrase,
-            TrieOpenOptions, trie::TrieBuilderNode,
+            Dictionary, DictionaryBuilder, DictionaryInfo, LookupStrategy, Phrase, TrieOpenOptions,
+            trie::TrieBuilderNode,
         },
         syl,
         zhuyin::Bopomofo,
@@ -1618,7 +1604,6 @@ mod tests {
             license: "license".into(),
             version: "version".into(),
             software: "software".into(),
-            usage: DictionaryUsage::BuiltIn,
         };
         builder.set_info(info)?;
 

@@ -14,14 +14,12 @@ pub use self::composite::CompositeDict;
 pub use self::string_table::StringTable;
 pub use self::string_table::StringTableBuilder;
 pub use self::trie::{Trie, TrieBuilder, TrieOpenOptions, TrieStatistics};
-pub use self::usage::DictionaryUsage;
 use crate::exn::Exn;
 use crate::zhuyin::Syllable;
 
 mod composite;
 mod string_table;
 mod trie;
-mod usage;
 
 /// A collection of metadata of a dictionary.
 ///
@@ -61,8 +59,6 @@ pub struct DictionaryInfo {
     ///
     /// It's recommended to include the name and the version number.
     pub software: String,
-    /// The intended usage of the dictionary.
-    pub usage: DictionaryUsage,
 }
 
 /// A type containing a phrase string and its frequency.
@@ -286,8 +282,6 @@ pub trait Dictionary: Debug {
     fn about(&self) -> DictionaryInfo;
     /// Returns the dictionary file path if it's backed by a file.
     fn path(&self) -> Option<&Path>;
-    /// Set the runtime usage of the dictionary
-    fn set_usage(&mut self, usage: DictionaryUsage);
     /// Reopens the dictionary if it was changed by a different process
     ///
     /// It should not fail if the dictionary is read-only or able to sync across
