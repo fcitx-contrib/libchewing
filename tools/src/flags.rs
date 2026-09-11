@@ -53,8 +53,6 @@ pub(crate) struct IndexCreateStringTable {
 
 #[derive(Subcommand)]
 pub(crate) enum Lm {
-    /// Clean-up input to prepare for training
-    Clean,
     /// Create binary language model from ARPA file
     Compile(LmCompile),
     /// Segment a string

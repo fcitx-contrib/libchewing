@@ -1,11 +1,9 @@
-mod clean;
 mod compile;
 mod eval;
 mod learn;
 mod prepare;
 mod segment;
 
-pub(crate) use clean::clean;
 pub(crate) use compile::compile_lm;
 pub(crate) use eval::eval;
 pub(crate) use learn::PruningConfig;
