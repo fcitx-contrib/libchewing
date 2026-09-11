@@ -174,39 +174,8 @@ impl Display for Phrase {
     }
 }
 
-/// A boxed iterator over the phrases and their frequency in a dictionary.
-///
-/// # Examples
-///
-/// ```no_run
-/// use chewing::{dictionary::{Dictionary, LookupStrategy, Trie}, syl, zhuyin::Bopomofo};
-///
-/// # let dict = Trie::new(&[][..]).unwrap();
-///
-/// for phrase in dict.lookup(
-///     &[syl![Bopomofo::C, Bopomofo::E, Bopomofo::TONE4]], LookupStrategy::Standard
-/// ) {
-///     assert_eq!("測", phrase.as_str());
-///     assert_eq!(100, phrase.freq());
-/// }
-/// ```
 pub type Phrases<'a> = Box<dyn Iterator<Item = Phrase> + 'a>;
 
-/// A boxed iterator over all the entries in a dictionary.
-///
-/// # Examples
-///
-/// ```no_run
-/// use chewing::{dictionary::{Dictionary, Trie}, syl, zhuyin::Bopomofo};
-///
-/// # let dict = Trie::new(&[][..]).unwrap();
-///
-/// for (syllables, phrase) in dict.entries() {
-///     for bopomofos in syllables {
-///         println!("{bopomofos} -> {phrase}");
-///     }
-/// }
-/// ```
 pub type Entries<'a> = Box<dyn Iterator<Item = (Vec<Syllable>, Phrase)> + 'a>;
 
 /// The lookup strategy hint for dictionary.

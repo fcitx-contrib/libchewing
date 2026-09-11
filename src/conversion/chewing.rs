@@ -152,6 +152,7 @@ mod tests {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
+                alpha: Decoder::ALPHA,
             },
             string_table,
         };
@@ -203,6 +204,7 @@ mod tests {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
+                alpha: Decoder::ALPHA,
             },
             string_table,
         };
@@ -268,6 +270,7 @@ mod tests {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
+                alpha: Decoder::ALPHA,
             },
             string_table: string_table.clone(),
         };
@@ -325,6 +328,7 @@ mod tests {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
+                alpha: Decoder::ALPHA,
             },
             string_table: string_table.clone(),
         };
@@ -365,6 +369,7 @@ mod tests {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
+                alpha: Decoder::ALPHA,
             },
             string_table: string_table.clone(),
         };
@@ -420,6 +425,7 @@ mod tests {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
+                alpha: Decoder::ALPHA,
             },
             string_table: string_table.clone(),
         };
@@ -502,6 +508,7 @@ mod tests {
             word_lattice_builder,
             decoder: Decoder {
                 lm: StaticLm::new(),
+                alpha: Decoder::ALPHA,
             },
             string_table: string_table.clone(),
         };

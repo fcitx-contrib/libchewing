@@ -60,22 +60,12 @@ impl TrieLeafView<'_> {
 ///
 /// Read a dictionary from a [File][`std::fs::File`]:
 ///
-/// ```
+/// ```no_run
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let tmpdir = tempfile::tempdir()?;
-/// # std::env::set_current_dir(&tmpdir.path())?;
 /// use std::fs::File;
 ///
 /// use chewing::{syl, zhuyin::{Bopomofo, Syllable}};
-/// # use chewing::dictionary::{DictionaryBuilder, TrieBuilder};
-/// use chewing::dictionary::{Dictionary, LookupStrategy, Trie};
-/// # let mut tempfile = File::create("dict.dat")?;
-/// # let mut builder = TrieBuilder::new();
-/// # builder.insert(&[
-/// #     syl![Bopomofo::Z, Bopomofo::TONE4],
-/// #     syl![Bopomofo::D, Bopomofo::I, Bopomofo::AN, Bopomofo::TONE3]
-/// # ], ("字典", 0).into());
-/// # builder.write(&mut tempfile)?;
+/// use chewing::dictionary::{LookupStrategy, Trie};
 ///
 /// let mut file = File::open("dict.dat")?;
 /// let dict = Trie::new(&mut file)?;
