@@ -53,7 +53,7 @@
 //! # Dictionary Files
 //!
 //! Chewing requires dictionary files at runtime. By default
-//! [SystemDictionaryLoader][dictionary::SystemDictionaryLoader] will search
+//! [SearchPath](`crate::path::SearchPath`) will search
 //! dictionaries from pre-configured system paths. See the [path] module level
 //! document for the search order.
 //!

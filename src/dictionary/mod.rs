@@ -2,64 +2,20 @@
 #![allow(deprecated)]
 
 use std::{
-    any::Any,
     borrow::Borrow,
     cmp::Ordering,
-    error::Error,
     fmt::{Debug, Display},
-    path::Path,
 };
 
 pub use self::composite::CompositeDict;
 pub use self::string_table::StringTable;
 pub use self::string_table::StringTableBuilder;
-pub use self::trie::{Trie, TrieBuilder, TrieOpenOptions, TrieStatistics};
-use crate::exn::Exn;
+pub use self::trie::{Trie, TrieOpenOptions};
 use crate::zhuyin::Syllable;
 
 mod composite;
 mod string_table;
 mod trie;
-
-/// A collection of metadata of a dictionary.
-///
-/// The dictionary version and copyright information can be used in
-/// configuration application.
-///
-/// # Examples
-///
-/// ```no_run
-/// # use chewing::dictionary::{Dictionary, Trie};
-/// # let dictionary = Trie::new(&[][..]).unwrap();
-/// let about = dictionary.about();
-/// assert_eq!("libchewing default", about.name);
-/// assert_eq!("Copyright (c) 2022 libchewing Core Team", about.copyright);
-/// assert_eq!("LGPL-2.1-or-later", about.license);
-/// assert_eq!("init_database 0.5.1", about.software);
-/// ```
-#[derive(Debug, Clone, Default)]
-pub struct DictionaryInfo {
-    /// The name of the dictionary.
-    pub name: String,
-    /// The copyright information of the dictionary.
-    ///
-    /// It's recommended to include the copyright holders' names and email
-    /// addresses, separated by semicolons.
-    pub copyright: String,
-    /// The license information of the dictionary.
-    ///
-    /// It's recommended to use the [SPDX license identifier](https://spdx.org/licenses/).
-    pub license: String,
-    /// The version of the dictionary.
-    ///
-    /// It's recommended to use the commit hash or revision if the dictionary is
-    /// managed in a source control repository.
-    pub version: String,
-    /// The name of the software used to generate the dictionary.
-    ///
-    /// It's recommended to include the name and the version number.
-    pub software: String,
-}
 
 /// A type containing a phrase string and its frequency.
 ///
@@ -264,139 +220,4 @@ pub enum LookupStrategy {
     Standard,
     /// Try to fuzzy match partial syllables using only preffix.
     FuzzyPartialPrefix,
-}
-
-/// An interface for looking up dictionaries.
-///
-/// This is the main dictionary trait. For more about the concept of
-/// dictionaries generally, please see the [module-level
-/// documentation][crate::dictionary].
-pub trait Dictionary: Debug {
-    /// Returns all phrases matched by the syllables.
-    ///
-    /// The result should use a stable order each time for the same input.
-    fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<Phrase>;
-    /// Returns an iterator to all phrases in the dictionary.
-    fn entries(&self) -> Entries<'_>;
-    /// Returns information about the dictionary instance.
-    fn about(&self) -> DictionaryInfo;
-    /// Returns the dictionary file path if it's backed by a file.
-    fn path(&self) -> Option<&Path>;
-    /// Reopens the dictionary if it was changed by a different process
-    ///
-    /// It should not fail if the dictionary is read-only or able to sync across
-    /// processes automatically.
-    fn reopen(&mut self) -> Result<(), UpdateDictionaryError> {
-        Err(UpdateDictionaryError::new("unimplemented"))
-    }
-    /// Flushes all the changes back to the filesystem
-    ///
-    /// The change made to the dictionary might not be persisted without
-    /// calling this method.
-    fn flush(&mut self) -> Result<(), UpdateDictionaryError> {
-        Err(UpdateDictionaryError::new("unimplemented"))
-    }
-    /// An method for updating dictionaries.
-    ///
-    /// For more about the concept of dictionaries generally, please see the
-    /// [module-level documentation][crate::dictionary].
-    fn add_phrase(
-        &mut self,
-        _syllables: &[Syllable],
-        _phrase: Phrase,
-    ) -> Result<(), UpdateDictionaryError> {
-        Err(UpdateDictionaryError::new("unimplemented"))
-    }
-    /// TODO: doc
-    fn update_phrase(
-        &mut self,
-        _syllables: &[Syllable],
-        _phrase: Phrase,
-        _user_freq: u32,
-        _time: u64,
-    ) -> Result<(), UpdateDictionaryError> {
-        Err(UpdateDictionaryError::new("unimplemented"))
-    }
-    /// TODO: doc
-    fn remove_phrase(
-        &mut self,
-        _syllables: &[Syllable],
-        _phrase_str: &str,
-    ) -> Result<(), UpdateDictionaryError> {
-        Err(UpdateDictionaryError::new("unimplemented"))
-    }
-}
-
-/// TODO: doc
-pub trait DictionaryBuilder: Any {
-    /// TODO: doc
-    fn set_info(&mut self, info: DictionaryInfo) -> Result<(), BuildDictionaryError>;
-    /// TODO: doc
-    fn insert(
-        &mut self,
-        syllables: &[Syllable],
-        phrase: Phrase,
-    ) -> Result<(), BuildDictionaryError>;
-    /// TODO: doc
-    fn build(&mut self, path: &Path) -> Result<(), BuildDictionaryError>;
-}
-
-/// The error type which is returned from updating a dictionary.
-#[derive(Debug)]
-pub struct UpdateDictionaryError {
-    /// TODO: doc
-    message: &'static str,
-    source: Option<Box<dyn Error + Send + Sync>>,
-}
-
-impl UpdateDictionaryError {
-    pub(crate) fn new(message: &'static str) -> UpdateDictionaryError {
-        UpdateDictionaryError {
-            message,
-            source: None,
-        }
-    }
-}
-
-impl Display for UpdateDictionaryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "update dictionary failed: {}", self.message)
-    }
-}
-
-impl_exn!(UpdateDictionaryError);
-
-/// Errors during dictionary construction.
-#[derive(Debug)]
-pub struct BuildDictionaryError {
-    msg: String,
-    source: Option<Box<dyn Error + Send + Sync + 'static>>,
-}
-
-impl BuildDictionaryError {
-    fn new(msg: &str) -> BuildDictionaryError {
-        BuildDictionaryError {
-            msg: msg.to_string(),
-            source: None,
-        }
-    }
-}
-
-impl Display for BuildDictionaryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "build dictionary error: {}", self.msg)
-    }
-}
-
-impl_exn!(BuildDictionaryError);
-
-#[cfg(test)]
-mod tests {
-    use crate::dictionary::{Dictionary, DictionaryBuilder};
-
-    #[test]
-    fn ensure_object_safe() {
-        const _: Option<&dyn Dictionary> = None;
-        const _: Option<&dyn DictionaryBuilder> = None;
-    }
 }

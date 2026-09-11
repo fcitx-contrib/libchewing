@@ -26,7 +26,7 @@ use crate::{
         ChewingEngine, ConversionEngine, Decoder, Interval, Outcome, Selection, SimpleEngine,
         Symbol, WordLatticeBuilder, full_width_symbol_input, special_symbol_input,
     },
-    dictionary::{CompositeDict, LookupStrategy, StringTable, UpdateDictionaryError},
+    dictionary::{CompositeDict, LookupStrategy, StringTable},
     exn::{Exn, ResultExt},
     input::{KeyState, KeyboardEvent, keysym::*},
     lm::{LoadMode, StaticDict, StaticLm},
@@ -780,8 +780,7 @@ impl SharedState {
             }
             Err(msg) => {
                 msg.clone_into(&mut self.notice_buffer);
-                Err(UpdateDictionaryError::new("failed to learn new phrase"))
-                    .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))
+                Err(EditorError::new(EditorErrorKind::InvalidState))
             }
         }
     }
@@ -833,10 +832,7 @@ impl SharedState {
                 &phrase,
                 phrase.chars().count()
             );
-            return Err(UpdateDictionaryError::new(
-                "failed to learn phrase: syllables and phrase has different length",
-            ))
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState));
+            return Err(EditorError::new(EditorErrorKind::InvalidState));
         }
         let wid = self.string_table.intern(phrase);
         let phrases = self.user_dict.lookup(syllables, LookupStrategy::Standard);

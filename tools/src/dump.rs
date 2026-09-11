@@ -4,21 +4,13 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Result, bail};
-use chewing::dictionary::{Dictionary, Trie};
+use anyhow::Result;
+use chewing::dictionary::Trie;
 
 use crate::flags;
 
 pub(crate) fn run(args: flags::Dump) -> Result<()> {
-    let ext = args
-        .path
-        .extension()
-        .ok_or(anyhow::anyhow!("Unknown dictionary format."))?;
-    let dict: Box<dyn Dictionary> = if ext.eq_ignore_ascii_case("sqlite3") {
-        bail!("sqlite3 dictionary format support was not removed.");
-    } else {
-        Box::new(Trie::open(&args.path)?)
-    };
+    let dict = Trie::open(&args.path)?;
     let sink: Box<dyn Write> = if let Some(output) = args.output {
         if output == PathBuf::from("-") {
             Box::new(stdout())
@@ -29,17 +21,11 @@ pub(crate) fn run(args: flags::Dump) -> Result<()> {
         Box::new(stdout())
     };
     let sink = BufWriter::new(sink);
-    dump_dict_csv(sink, dict.as_ref())?;
+    dump_dict_csv(sink, &dict)?;
     Ok(())
 }
 
-fn dump_dict_csv(mut sink: BufWriter<Box<dyn Write>>, dict: &dyn Dictionary) -> Result<()> {
-    let info = dict.about();
-    writeln!(sink, "# dc:title,{},", info.name)?;
-    writeln!(sink, "# dc:rights,{},", info.copyright)?;
-    writeln!(sink, "# dc:license,{},", info.license)?;
-    writeln!(sink, "# dc:identifier,{},", info.version)?;
-    writeln!(sink, "# 詞(phrase),詞頻(freq),注音(bopomofo)")?;
+fn dump_dict_csv(mut sink: BufWriter<Box<dyn Write>>, dict: &Trie) -> Result<()> {
     for (syllables, phrase) in dict.entries() {
         writeln!(
             sink,

@@ -11,10 +11,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use log::info;
 use scoped_error::{expect_error, impl_context_error};
 
-use crate::{
-    dictionary::{Dictionary, Trie},
-    zhuyin::Syllable,
-};
+use crate::{dictionary::Trie, zhuyin::Syllable};
 
 pub fn should_migrate_v3(base_path: &Path) -> bool {
     let chewing_dat_path = base_path.join("chewing.dat");

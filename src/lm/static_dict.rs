@@ -18,51 +18,12 @@ use crate::{
     zhuyin::Syllable,
 };
 
-/// A read-only dictionary using a pre-built [Trie][] index that is both space
+/// A read-only dictionary using a pre-built trie index that is both space
 /// efficient and fast to lookup.
 ///
-/// `Trie`s can be used as system dictionaries or shared dictionaries.
-/// The file format is defined using the platform independent [DER][DER]
-/// encoding format, allowing them to be versioned and shared easily.
-///
-/// A new dictionary can be built using a [`TrieBuilder`].
-///
-/// # Examples
-///
-/// Read a dictionary from a [File][`std::fs::File`]:
-///
-/// ```
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let tmpdir = tempfile::tempdir()?;
-/// # std::env::set_current_dir(&tmpdir.path())?;
-/// use std::fs::File;
-///
-/// use chewing::{syl, zhuyin::{Bopomofo, Syllable}};
-/// # use chewing::dictionary::{DictionaryBuilder, TrieBuilder};
-/// use chewing::dictionary::{Dictionary, LookupStrategy, Trie};
-/// # let mut tempfile = File::create("dict.dat")?;
-/// # let mut builder = TrieBuilder::new();
-/// # builder.insert(&[
-/// #     syl![Bopomofo::Z, Bopomofo::TONE4],
-/// #     syl![Bopomofo::D, Bopomofo::I, Bopomofo::AN, Bopomofo::TONE3]
-/// # ], ("字典", 0).into());
-/// # builder.write(&mut tempfile)?;
-///
-/// let mut file = File::open("dict.dat")?;
-/// let dict = Trie::new(&mut file)?;
-///
-/// // Find the phrase ㄗˋㄉ一ㄢˇ (dictionary)
-/// let phrase = dict.lookup(&[
-///     syl![Bopomofo::Z, Bopomofo::TONE4],
-///     syl![Bopomofo::D, Bopomofo::I, Bopomofo::AN, Bopomofo::TONE3]
-/// ], LookupStrategy::Standard);
-/// assert_eq!("字典", phrase.first().unwrap().as_str());
-/// # Ok(())
-/// # }
-/// ```
+/// A new dictionary can be built using a [`StaticDictBuilder`].
 ///
 /// [Trie]: https://en.m.wikipedia.org/wiki/Trie
-/// [DER]: https://en.m.wikipedia.org/wiki/X.690#DER_encoding
 #[derive(Debug, Clone)]
 pub struct StaticDict {
     inner: Arc<StaticDictInner>,
