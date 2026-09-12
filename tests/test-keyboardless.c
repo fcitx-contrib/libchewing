@@ -492,7 +492,7 @@ void test_cand_list_word_selection_next_no_rearward()
     ok(ret > 0, "chewing_cand_TotalChoice() returns `%d' shall be greater than `%d'", ret, 0);
     ok_candidate_len(ctx, 2);
 
-    ret = chewing_cand_choose_by_index(ctx, 1);
+    ret = chewing_cand_choose_by_index(ctx, 3);
     ok(ret == 0, "chewing_cand_choose_by_index() returns `%d' shall be `%d'", ret, 0);
 
     ok_preedit_buffer(ctx, "\xE4\xB8\x80\xE8\xBC\xA9\xE5\xAD\x90" /* 一輩子 */ );
@@ -530,7 +530,7 @@ void test_cand_list_word_selection_next_rearward()
     ok(ret > 0, "chewing_cand_TotalChoice() returns `%d' shall be greater than `%d'", ret, 0);
     ok_candidate_len(ctx, 2);
 
-    ret = chewing_cand_choose_by_index(ctx, 0);
+    ret = chewing_cand_choose_by_index(ctx, 2);
     ok(ret == 0, "chewing_cand_choose_by_index() returns `%d' shall be `%d'", ret, 0);
 
     ok_preedit_buffer(ctx, "\xE4\xB8\x80\xE8\xBC\xA9\xE5\xAD\x90" /* 一輩子 */ );
@@ -570,7 +570,7 @@ void test_cand_list_word_selection_prev_no_rearward()
     ok(ret > 0, "chewing_cand_TotalChoice() returns `%d' shall be greater than `%d'", ret, 0);
     ok_candidate_len(ctx, 2);
 
-    ret = chewing_cand_choose_by_index(ctx, 1);
+    ret = chewing_cand_choose_by_index(ctx, 3);
     ok(ret == 0, "chewing_cand_choose_by_index() returns `%d' shall be `%d'", ret, 0);
 
     ok_preedit_buffer(ctx, "\xE4\xB8\x80\xE8\xBC\xA9\xE5\xAD\x90" /* 一輩子 */ );
@@ -612,7 +612,7 @@ void test_cand_list_word_selection_prev_rearward()
     ok(ret > 0, "chewing_cand_TotalChoice() returns `%d' shall be greater than `%d'", ret, 0);
     ok_candidate_len(ctx, 2);
 
-    ret = chewing_cand_choose_by_index(ctx, 0);
+    ret = chewing_cand_choose_by_index(ctx, 2);
     ok(ret == 0, "chewing_cand_choose_by_index() returns `%d' shall be `%d'", ret, 0);
 
     ok_preedit_buffer(ctx, "\xE4\xB8\x80\xE8\xBC\xA9\xE5\xAD\x90" /* 一輩子 */ );

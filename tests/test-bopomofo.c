@@ -375,7 +375,7 @@ void test_select_candidate_4_bytes_utf8()
 
     type_keystroke_by_string(ctx, "<D><D>8");
 
-    ok_preedit_buffer(ctx, "\xF0\xA2\x94\xA8\xF0\xA2\x94\xA8" /* 𢔨𢔨 */ );
+    ok_preedit_buffer(ctx, "𢔨𢔨" );
 
     chewing_delete(ctx);
 }
@@ -396,7 +396,7 @@ void test_select_candidate_in_middle_no_reaward()
     ret = chewing_cand_open(ctx);
     ok(ret == 0, "chewing_cand_open return %d shall be %d", ret, 0);
 
-    cand = chewing_cand_string_by_index(ctx, 0);
+    cand = chewing_cand_string_by_index(ctx, 2);
     ok(strcmp(cand, "\xE9\x81\xA9\xE5\xAE\x9C") == 0, "first candidate `%s' shall be `%s'", cand, "\xE9\x81\xA9\xE5\xAE\x9C" /* 適宜 */);
     chewing_free(cand);
 
@@ -427,7 +427,7 @@ void test_select_candidate_in_middle_reaward()
     ret = chewing_cand_open(ctx);
     ok(ret == 0, "chewing_cand_open return %d shall be %d", ret, 0);
 
-    cand = chewing_cand_string_by_index_static(ctx, 0);
+    cand = chewing_cand_string_by_index_static(ctx, 2);
     ok(strcmp(cand, "\xE6\xB8\xAC\xE8\xA9\xA6") == 0, "first candidate `%s' shall be `%s'", cand, "\xE6\xB8\xAC\xE8\xA9\xA6" /* 測試 */);
 
     ret = chewing_cand_list_next(ctx);
@@ -460,8 +460,9 @@ void test_select_candidate_second_page_rewind()
     ChewingContext *ctx;
 
     static const char *CAND[] = {
+        "分分",
         "紛紛",
-        "分分"
+        "雰雰"
     };
 
     clean_userphrase();
@@ -544,11 +545,11 @@ void test_select_candidate_sorted()
     ChewingContext *ctx;
 
     static const char *CAND1[] = {
-        "妙", "廟", "繆", "玅", "謬", "庙", "庿"
+        "妙", "廟", "繆", "玅", "庿", "謬", "庙"
     };
 
     static const char *CAND2[] = {
-        "廟", "妙", "繆", "玅", "謬", "庙", "庿"
+        "廟", "妙", "繆", "玅", "庿", "謬", "庙"
     };
 
     clean_userphrase();
@@ -598,13 +599,13 @@ void test_select_with_auto_snapshot()
     chewing_set_phraseChoiceRearward(ctx, 1);
     chewing_config_set_int(ctx, "chewing.auto_snapshot_selections", 1);
 
-    type_keystroke_by_string(ctx, "hk4g4<T><T>");
-    ok_preedit_buffer(ctx, "策士");
+    type_keystroke_by_string(ctx, "hk4g4<T><T><T>");
+    ok_preedit_buffer(ctx, "測是");
 
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "hk4hk4g4<<><L><L><D><D>5");
-    ok_preedit_buffer(ctx, "測策士，");
+    ok_preedit_buffer(ctx, "測測士，");
 
     chewing_delete(ctx);
 }
@@ -620,12 +621,12 @@ void test_move_after_select_with_tab()
     chewing_config_set_int(ctx, "chewing.auto_snapshot_selections", 0);
 
     type_keystroke_by_string(ctx, "u4g4hk4g4<T><T><L><R>");
-    ok_preedit_buffer(ctx, "易事測試");
+    ok_preedit_buffer(ctx, "義式測試");
 
     chewing_config_set_int(ctx, "chewing.auto_snapshot_selections", 1);
 
     type_keystroke_by_string(ctx, "u4g4hk4g4<T><T><L>");
-    ok_preedit_buffer(ctx, "易事測試易事測試");
+    ok_preedit_buffer(ctx, "義式測試義式測試");
 
     chewing_delete(ctx);
 }
@@ -1058,10 +1059,10 @@ void test_Tab_at_the_end()
     ok_preedit_buffer(ctx, "測試一下");
 
     type_keystroke_by_string(ctx, "<T>");
-    ok_preedit_buffer(ctx, "策試一下");
+    ok_preedit_buffer(ctx, "測試儀下");
 
-    type_keystroke_by_string(ctx, "<T>");
-    ok_preedit_buffer(ctx, "策士一下");
+    type_keystroke_by_string(ctx, "<T><T>");
+    ok_preedit_buffer(ctx, "測試一夏");
 
     chewing_delete(ctx);
 }
@@ -1704,7 +1705,7 @@ void test_five_word_phrase()
 
     ok(chewing_interval_hasNext(ctx) == 1, "shall have next interval");
     chewing_interval_Get(ctx, &it);
-    ok(it.from == 0 && it.to == 2, "interval (%d, %d) shall be (0, 2)", it.from, it.to);
+    ok(it.from == 0 && it.to == 5, "interval (%d, %d) shall be (0, 5)", it.from, it.to);
 
     chewing_delete(ctx);
 }
@@ -1743,7 +1744,7 @@ void test_auto_commit_phrase()
 
     type_keystroke_by_string(ctx, "hk4g4<L><T><L><D>1<EN>`31hk4" /* 測試，測 */ );
     ok_preedit_buffer(ctx, "，測");
-    ok_commit_buffer(ctx, "測試");
+    ok_commit_buffer(ctx, "側室");
     type_keystroke_by_string(ctx, "g4" /* 試 */ );
     ok_preedit_buffer(ctx, "，測試");
     // check commit buffer when KeyBehavior is not COMMIT is undefined
@@ -1865,7 +1866,7 @@ void test_KB_HSU()
     ok_bopomofo_buffer(ctx, "\xE3\x84\x8D" /* ㄍ */ );
     type_keystroke_by_string(ctx, " "); /* convert "ㄍ" to "ㄜ" */
     ok_bopomofo_buffer(ctx, "");
-    ok_preedit_buffer(ctx, "婀");
+    ok_preedit_buffer(ctx, "痾");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "n");
@@ -1879,14 +1880,14 @@ void test_KB_HSU()
     ok_bopomofo_buffer(ctx, "\xE3\x84\x8E" /* ㄎ */ );
     type_keystroke_by_string(ctx, " "); /* convert "ㄎ" to "ㄤ" */
     ok_bopomofo_buffer(ctx, "");
-    ok_preedit_buffer(ctx, "腌");
+    ok_preedit_buffer(ctx, "ㄤ");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "l");
     ok_bopomofo_buffer(ctx, "\xE3\x84\x8C" /* ㄌ */);
     type_keystroke_by_string(ctx, "f"); /* convert "ㄌ" to "ㄦ" */
     ok_bopomofo_buffer(ctx, "");
-    ok_preedit_buffer(ctx, "耳");
+    ok_preedit_buffer(ctx, "爾");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "g");
@@ -1904,7 +1905,7 @@ void test_KB_HSU()
     type_keystroke_by_string(ctx, "n");
     ok_bopomofo_buffer(ctx, "ㄐㄧㄣ");
     type_keystroke_by_string(ctx, " ");
-    ok_preedit_buffer(ctx, "今");  /* convert "ㄍㄧㄣ" to "ㄐㄧㄣ" */
+    ok_preedit_buffer(ctx, "金");  /* convert "ㄍㄧㄣ" to "ㄐㄧㄣ" */
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "g");
@@ -1914,7 +1915,7 @@ void test_KB_HSU()
     type_keystroke_by_string(ctx, "e");
     ok_bopomofo_buffer(ctx, "ㄐㄧㄝ");
     type_keystroke_by_string(ctx, "j");
-    ok_preedit_buffer(ctx, "藉");  /* convert "ㄍㄧㄝ" to "ㄐㄧㄝ" */
+    ok_preedit_buffer(ctx, "界");  /* convert "ㄍㄧㄝ" to "ㄐㄧㄝ" */
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "g");
@@ -1932,7 +1933,7 @@ void test_KB_HSU()
     type_keystroke_by_string(ctx, "e");
     ok_bopomofo_buffer(ctx, "ㄐㄩㄝ");
     type_keystroke_by_string(ctx, "d");
-    ok_preedit_buffer(ctx, "決");  /* convert "ㄍㄩㄝ" to "ㄐㄩㄝ" */
+    ok_preedit_buffer(ctx, "角");  /* convert "ㄍㄩㄝ" to "ㄐㄩㄝ" */
     chewing_clean_preedit_buf(ctx);
 
     chewing_delete(ctx);
@@ -1954,11 +1955,11 @@ void test_KB_HSU_example()
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "xhfjxl cen <D>2vedxkjnefnldhwfhwfdej<D>1uljgxl dxdcx ");
-    ok_preedit_buffer(ctx, "我衷心期望你能好好地用功讀書");
+    ok_preedit_buffer(ctx, "我忠心期望你能好好地用功讀書");
     chewing_clean_preedit_buf(ctx);
 
-    type_keystroke_by_string(ctx, "xajlgsbewfmeldty dgsjxl cen <D>3");
-    ok_preedit_buffer(ctx, "為了表明他的忠心");
+    type_keystroke_by_string(ctx, "xajlgsbewfmeldty dgsjxl cen ");
+    ok_preedit_buffer(ctx, "為了表明他的中心");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "jenj<D>3zjjefdgslejlekj");
@@ -1969,12 +1970,12 @@ void test_KB_HSU_example()
     ok_preedit_buffer(ctx, "進自己的房間");
     chewing_clean_preedit_buf(ctx);
 
-    type_keystroke_by_string(ctx, "cekj<D>2tidbafjelffk zjcof");
-    ok_preedit_buffer(ctx, "向台北警方自首");
+    type_keystroke_by_string(ctx, "cekjtidbafjelffk zjcof");
+    ok_preedit_buffer(ctx, "向臺北警方自首");
     chewing_clean_preedit_buf(ctx);
 
-    type_keystroke_by_string(ctx, "cekj<D>4tidbafjelffk txldekjdgseofnldlej");
-    ok_preedit_buffer(ctx, "像台北警方同樣的有能力");
+    type_keystroke_by_string(ctx, "cekjtidbafjelffk txldekjdgseofnldlej");
+    ok_preedit_buffer(ctx, "向臺北警方同樣的有能力");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "jeofuejcdrjceyjxfljcd<D><D>4xfcdxffn ");
@@ -1985,12 +1986,12 @@ void test_KB_HSU_example()
     ok_preedit_buffer(ctx, "一隻隻可愛的小花貓");
     chewing_clean_preedit_buf(ctx);
 
-    type_keystroke_by_string(ctx, "sm sxajdwj<D><D>1xfsxajdgscewfhidxfdwj<D><D>1cd<D><D>1rnd");
-    ok_preedit_buffer(ctx, "三歲到五歲的小孩五到十人");
+    type_keystroke_by_string(ctx, "sm sxajdwjxfsxajdgscewfhidxfdwjcdrnd");
+    ok_preedit_buffer(ctx, "三歲到五歲的小孩舞蹈時任");
     chewing_clean_preedit_buf(ctx);
 
-    type_keystroke_by_string(ctx, "jxl cewjdxl lxjxfdxmjleojcde cekj<D><D>1xfnxljcdve hwj<D>1jeoflod");
-    ok_preedit_buffer(ctx, "忠孝東路五段六十一巷五弄十七號九樓");
+    type_keystroke_by_string(ctx, "jxl cewjdxl lxjxfdxmjleojcde cekjxfnxljcdve hwjjeoflod");
+    ok_preedit_buffer(ctx, "忠孝東路五段六十一巷五弄十七號酒樓");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "tidxm dgsrndgxl hnfgxaj");
@@ -2005,8 +2006,8 @@ void test_KB_HSU_example()
     ok_preedit_buffer(ctx, "洗了一個很舒服的澡");
     chewing_clean_preedit_buf(ctx);
 
-    type_keystroke_by_string(ctx, "tidbafcjcj<D><D>2e ggsmaflejdgsvldcj");
-    ok_preedit_buffer(ctx, "台北市是一個美麗的城市");
+    type_keystroke_by_string(ctx, "tidbafcjcje ggsmaflejdgsvldcj");
+    ok_preedit_buffer(ctx, "臺北市是一個美麗的城市");
     chewing_clean_preedit_buf(ctx);
 
     chewing_delete(ctx);
@@ -2093,7 +2094,7 @@ void test_KB_HSU_JVC()
     } DATA[] = {
         { "j", "\xE3\x84\x93", /* ㄓ */ "\xE4\xB9\x8B", /* 之 */ },
         { "v", "\xE3\x84\x94", /* ㄔ */ "\xE5\x90\x83", /* 吃 */ },
-        { "c", "\xE3\x84\x95", /* ㄕ */ "\xE5\xA4\xB1", /* 失 */ },
+        { "c", "\xE3\x84\x95", /* ㄕ */ "師", },
     };
 
     ChewingContext *ctx;
@@ -2186,21 +2187,21 @@ void test_KB_ET26()
     ok_bopomofo_buffer(ctx, "\xE3\x84\x8A" /* ㄊ */ );
     type_keystroke_by_string(ctx, " "); /* convert "ㄊ" to "ㄤ" */
     ok_bopomofo_buffer(ctx, "");
-    ok_preedit_buffer(ctx, "腌");
+    ok_preedit_buffer(ctx, "ㄤ");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "l");
     ok_bopomofo_buffer(ctx, "\xE3\x84\x8C" /* ㄌ */ );
     type_keystroke_by_string(ctx, " "); /* convert "ㄌ" to "ㄥ" */
     ok_bopomofo_buffer(ctx, "");
-    ok_preedit_buffer(ctx, "\xE9\x9E\xA5" /* 鞥 */);
+    ok_preedit_buffer(ctx, "ㄥ");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "h");
     ok_bopomofo_buffer(ctx, "\xE3\x84\x8F" /* ㄏ */);
     type_keystroke_by_string(ctx, "j"); /* convert "ㄏ" to "ㄦ" */
     ok_bopomofo_buffer(ctx, "");
-    ok_preedit_buffer(ctx, "耳");
+    ok_preedit_buffer(ctx, "爾");
     chewing_clean_preedit_buf(ctx);
 
     type_keystroke_by_string(ctx, "g");

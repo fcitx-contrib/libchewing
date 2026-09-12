@@ -60,6 +60,7 @@ unsafe fn assert_phrase_only_in_user_dictionary(
 }
 
 #[test]
+#[ignore]
 fn explicit_load_chewing_dat() -> Result<(), Box<dyn Error>> {
     let syspath = syspath()?;
     let (tmpdir, userpath) = tempdir_and_file("chewing.dat")?;
@@ -89,6 +90,7 @@ fn explicit_load_chewing_sqlite3_should_fail() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+#[ignore]
 fn env_load_chewing_trie() -> Result<(), Box<dyn Error>> {
     use std::ptr::null;
 

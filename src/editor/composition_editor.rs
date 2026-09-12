@@ -7,7 +7,7 @@ use std::{
 
 use log::warn;
 
-use crate::conversion::{Composition, Gap, Interval, Symbol};
+use crate::conversion::{Composition, Gap, Selection, Symbol};
 
 /// TODO
 #[derive(Debug, Default, Clone)]
@@ -168,9 +168,8 @@ impl CompositionEditor {
         };
         self.inner.symbol(cursor)
     }
-    pub(crate) fn select(&mut self, interval: Interval) {
-        assert!(!interval.text.is_empty());
-        self.inner.push_selection(interval);
+    pub(crate) fn select(&mut self, selection: Selection) {
+        self.inner.push_selection(selection);
     }
 }
 

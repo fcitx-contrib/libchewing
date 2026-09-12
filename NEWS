@@ -1,11 +1,23 @@
 What's New in libchewing 0.14.0 (unreleased)
 ---------------------------------------------------------
 
+* For distribution maintainers
+  - system dictionary format has changed. System files now include
+    - static_words.bin
+    - static_dict.bin
+    - rare_dict.bin
+    - static_lm.bin
+    - swkb.dat
+    - symbols.dat
+
 * Changes
   - BREAKING: dict: support for auto migration from the legacy
     hash.dat and uhash.dat format has been removed.
   - BREAKING: dict: support for auto migration from the legacy
     sqlite format has been removed.
+  - BREAKING: many rust API have changed or removed. Check the API documentation
+    for details.
+  - BREAKING: the `enabled_dicts` parameter of `chewing_new3()` is now an no-op.
 
 What's New in libchewing 0.13.1 (July 15, 2026)
 ---------------------------------------------------------

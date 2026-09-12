@@ -1,9 +1,12 @@
-use std::cmp::{Reverse, min};
+use std::cmp::min;
+
+use scoped_error::{bail, expect_error};
 
 use crate::{
-    conversion::{Composition, Gap, Interval},
-    dictionary::{Dictionary, Layered, LookupStrategy},
-    editor::{EditorError, EditorErrorKind, SharedState},
+    conversion::{Composition, Gap},
+    dictionary::{CompositeDict, LookupStrategy},
+    editor::{ConversionEngineKind, EditorError, SharedState},
+    model::WordId,
     zhuyin::Syllable,
 };
 
@@ -20,7 +23,7 @@ pub(crate) struct PhraseSelector {
 impl PhraseSelector {
     pub(crate) fn new(
         forward_select: bool,
-        lookup_strategy: LookupStrategy,
+        conversion_engine: ConversionEngineKind,
         com: Composition,
     ) -> PhraseSelector {
         PhraseSelector {
@@ -28,12 +31,17 @@ impl PhraseSelector {
             end: com.len(),
             forward_select,
             orig: 0,
-            lookup_strategy,
+            lookup_strategy: match conversion_engine {
+                ConversionEngineKind::ChewingEngine | ConversionEngineKind::SimpleEngine => {
+                    LookupStrategy::Standard
+                }
+                ConversionEngineKind::FuzzyChewingEngine => LookupStrategy::FuzzyPartialPrefix,
+            },
             com,
         }
     }
 
-    pub(crate) fn init<D: Dictionary>(&mut self, cursor: usize, dict: &D) {
+    pub(crate) fn init(&mut self, cursor: usize, dict: &CompositeDict) {
         self.orig = cursor;
         if self.forward_select {
             self.begin = if cursor == self.com.len() {
@@ -77,7 +85,11 @@ impl PhraseSelector {
         self.begin
     }
 
-    pub(crate) fn next_selection_point<D: Dictionary>(&self, dict: &D) -> Option<(usize, usize)> {
+    pub(crate) fn end(&self) -> usize {
+        self.end
+    }
+
+    pub(crate) fn next_selection_point(&self, dict: &CompositeDict) -> Option<(usize, usize)> {
         let (mut begin, mut end) = (self.begin, self.end);
         loop {
             if self.forward_select {
@@ -101,7 +113,7 @@ impl PhraseSelector {
             }
         }
     }
-    pub(crate) fn prev_selection_point<D: Dictionary>(&self, dict: &D) -> Option<(usize, usize)> {
+    pub(crate) fn prev_selection_point(&self, dict: &CompositeDict) -> Option<(usize, usize)> {
         let (mut begin, mut end) = (self.begin, self.end);
         loop {
             if self.forward_select {
@@ -131,40 +143,44 @@ impl PhraseSelector {
             }
         }
     }
-    pub(crate) fn jump_to_next_selection_point<D: Dictionary>(
+    pub(crate) fn jump_to_next_selection_point(
         &mut self,
-        dict: &D,
+        dict: &CompositeDict,
     ) -> Result<(), EditorError> {
-        if let Some((begin, end)) = self.next_selection_point(dict) {
-            self.begin = begin;
-            self.end = end;
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::Impossible))
-        }
+        expect_error("Unable to jump to next selection point", || {
+            if let Some((begin, end)) = self.next_selection_point(dict) {
+                self.begin = begin;
+                self.end = end;
+                Ok(())
+            } else {
+                bail!("No next selection point")
+            }
+        })
     }
-    pub(crate) fn jump_to_prev_selection_point<D: Dictionary>(
+    pub(crate) fn jump_to_prev_selection_point(
         &mut self,
-        dict: &D,
+        dict: &CompositeDict,
     ) -> Result<(), EditorError> {
-        if let Some((begin, end)) = self.prev_selection_point(dict) {
-            self.begin = begin;
-            self.end = end;
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::Impossible))
-        }
+        expect_error("Unable to jump to previous selection point", || {
+            if let Some((begin, end)) = self.prev_selection_point(dict) {
+                self.begin = begin;
+                self.end = end;
+                Ok(())
+            } else {
+                bail!("No previous selection point")
+            }
+        })
     }
-    pub(crate) fn jump_to_first_selection_point<D: Dictionary>(&mut self, dict: &D) {
+    pub(crate) fn jump_to_first_selection_point(&mut self, dict: &CompositeDict) {
         self.init(self.orig, dict);
     }
-    pub(crate) fn jump_to_last_selection_point<D: Dictionary>(&mut self, dict: &D) {
+    pub(crate) fn jump_to_last_selection_point(&mut self, dict: &CompositeDict) {
         while self.next_selection_point(dict).is_some() {
             let _ = self.jump_to_next_selection_point(dict);
         }
     }
 
-    pub(crate) fn next<D: Dictionary>(&mut self, dict: &D) {
+    pub(crate) fn next(&mut self, dict: &CompositeDict) {
         loop {
             if self.forward_select {
                 self.end -= 1;
@@ -222,12 +238,13 @@ impl PhraseSelector {
         cursor
     }
 
-    pub(crate) fn candidates(&self, editor: &SharedState, dict: &Layered) -> Vec<String> {
+    pub(crate) fn candidates(&self, editor: &SharedState) -> Vec<WordId> {
         let syllables: Vec<Syllable> = self.com.symbols()[self.begin..self.end]
             .iter()
             .map(|s| s.to_syllable().unwrap_or_default())
             .collect();
-        let mut candidates = dict
+        let mut candidates = editor
+            .dict
             .lookup(&syllables, self.lookup_strategy)
             .into_iter()
             .collect::<Vec<_>>();
@@ -236,22 +253,19 @@ impl PhraseSelector {
                 .syl
                 .alt_syllables(self.com.symbol(self.begin).unwrap().to_syllable().unwrap());
             for &syl in alt {
-                candidates.extend(dict.lookup(&[syl], self.lookup_strategy).into_iter())
+                candidates.extend(editor.dict.lookup(&[syl], self.lookup_strategy).into_iter())
             }
         }
         if editor.options.sort_candidates_by_frequency {
-            candidates.sort_by_key(|ph| Reverse(ph.freq()));
+            candidates = editor.decoder.rank(candidates);
         }
-        candidates.into_iter().map(|ph| ph.into()).collect()
-    }
-
-    pub(crate) fn interval(&self, phrase: impl Into<Box<str>>) -> Interval {
-        Interval {
-            start: self.begin,
-            end: self.end,
-            is_phrase: true,
-            text: phrase.into(),
-        }
+        candidates
+            .into_iter()
+            .map(|c| match c {
+                crate::model::Candidate::Word { wid, .. } => wid,
+                _ => unreachable!(),
+            })
+            .collect()
     }
 }
 
@@ -260,10 +274,21 @@ mod tests {
     use super::PhraseSelector;
     use crate::{
         conversion::{Composition, Symbol},
-        dictionary::{LookupStrategy, TrieBuf},
+        dictionary::{CompositeDict, LookupStrategy, StringTable},
+        lm::StaticDict,
         syl,
+        user::{HistoryDict, UserDict},
         zhuyin::Bopomofo::*,
     };
+
+    fn make_dict(user_dict: UserDict) -> CompositeDict {
+        CompositeDict::new(
+            StaticDict::new(),
+            StaticDict::new(),
+            HistoryDict::new(StringTable::new()),
+            user_dict,
+        )
+    }
 
     #[test]
     fn init_when_cursor_end_of_buffer_syllable() {
@@ -277,8 +302,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
 
         assert_eq!(0, sel.begin);
         assert_eq!(1, sel.end);
@@ -297,8 +323,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
     }
 
     #[test]
@@ -313,8 +340,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
 
         assert_eq!(0, sel.begin);
         assert_eq!(1, sel.end);
@@ -333,8 +361,9 @@ mod tests {
             lookup_strategy: LookupStrategy::Standard,
             com,
         };
-        let dict = TrieBuf::from([(vec![syl![C, E, TONE4]], vec![("測", 100)])]);
-        sel.init(1, &dict);
+        let user_dict = UserDict::new(StringTable::new());
+        user_dict.insert(&[syl![C, E, TONE4]], "測");
+        sel.init(1, &make_dict(user_dict));
     }
 
     #[test]

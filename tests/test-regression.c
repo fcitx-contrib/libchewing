@@ -149,10 +149,10 @@ void test_forgot_selection()
 
     chewing_set_escCleanAllBuf(ctx, 1);
 
-    type_keystroke_by_string(ctx, "<EE>hk4g4<L><L><D>3<R><R>g4");
+    type_keystroke_by_string(ctx, "<EE>hk4g4<L><L><D>4<R><R>g4");
     ok_preedit_buffer(ctx, "策士是");
 
-    type_keystroke_by_string(ctx, "<EE>hk4g4<L><L><D>2<R><R>g4");
+    type_keystroke_by_string(ctx, "<EE>hk4g4<L><L><D>5<R><R>g4");
     ok_preedit_buffer(ctx, "策試是");
 
     chewing_delete(ctx);
@@ -253,7 +253,7 @@ void test_crash_found_by_fuzzing_20240505_0()
     start_testcase(ctx);
 
     type_keystroke_by_string(ctx, "93<D>093<D>0<H><D>2");
-    ok_preedit_buffer(ctx, "靄靄");
+    ok_preedit_buffer(ctx, "藹藹");
 
     chewing_delete(ctx);
 }

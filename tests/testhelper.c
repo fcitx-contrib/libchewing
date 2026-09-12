@@ -405,34 +405,14 @@ int exit_status()
     return test_run == test_ok ? 0 : -1;
 }
 
-char *get_test_userphrase_path()
-{
-    char *userphrase_path = getenv("TEST_USERPHRASE_PATH");
-
-    if (userphrase_path)
-        return userphrase_path;
-    else
-        return TEST_HASH_DIR "/" DB_NAME;
-}
-
-char *get_test_user_deleted_path()
-{
-    char *path = getenv("TEST_USER_DELETED_PATH");
-
-    if (path)
-        return path;
-    else
-        return TEST_HASH_DIR "/" "chewing-deleted.dat";
-}
-
 void clean_userphrase()
 {
-    char *path = get_test_userphrase_path();
+    char *path = TEST_HASH_DIR "/v4/user_dict.csv";
 
     if (remove(path) != 0 && errno != ENOENT)
         fprintf(stderr, "remove fails at %s:%d\n", __FILE__, __LINE__);
 
-    path = get_test_user_deleted_path();
+    path = TEST_HASH_DIR "/v4/history_dict.bin";
 
     if (remove(path) != 0 && errno != ENOENT)
         fprintf(stderr, "remove fails at %s:%d\n", __FILE__, __LINE__);

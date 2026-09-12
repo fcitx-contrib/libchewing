@@ -231,18 +231,6 @@ install(TARGETS libchewing
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-if(BUILD_DATA)
-    install(
-        FILES
-            ${PROJECT_BINARY_DIR}/data/dict/chewing/tsi.dat
-            ${PROJECT_BINARY_DIR}/data/dict/chewing/word.dat
-            ${PROJECT_BINARY_DIR}/data/misc/swkb.dat
-            ${PROJECT_BINARY_DIR}/data/misc/symbols.dat
-        DESTINATION
-            ${CMAKE_INSTALL_DATADIR}/libchewing
-    )
-endif()
-
 install(IMPORTED_RUNTIME_ARTIFACTS chewing-cli DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # generate CMake Config files

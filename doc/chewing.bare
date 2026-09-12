@@ -1,0 +1,128 @@
+# static_words.bin
+# ===============
+# CHD perfect hashed words list for quick two way string to word_id lookup
+
+type StaticWordsFileMagic struct {
+    magic: data[4]                # CHSW
+    file: StaticWordsFile
+}
+
+type StaticWordsFile union {StaticWordsFileV1}
+
+type StaticWordsFileV1 struct {
+    header: StaticWordsHeader
+    # Newline (LF) delimited UTF-8 strings
+    words: data
+}
+
+type StaticWordsHeader {
+    flags: u32
+    num_keys: u32,
+    num_buckets: u32,
+    seed: u32,
+    displacements: list<u16>,
+}
+
+# static_dict.bin
+# ===============
+# Trie dictionary for bopomofo to words conversion
+
+type StaticDictFileMagic struct {
+    magic: data[4]                # CHSD
+    file: StaticDictFile
+}
+
+type StaticDictFile union {StaticDictFileV1}
+
+type StaticDictFileV1 struct {
+    header: StaticDictHeader
+    index: data
+    words: data
+}
+
+type StaticDictHeader struct {
+    flags: u32
+}
+
+type StaticDictIndex struct {
+    nodes: list<StaticDictIndexNode>
+}
+
+type StaticDictIndexNode struct {
+    child_start: u32
+    child_len: u16
+    syllable: u16
+}
+
+# If the last 2 bytes are all zeros then the node can be
+# reinterpreted as a leaf node.
+type StaticDictIndexLeafNode struct {
+    data_start: u32
+    data_len: u16
+    reserved: u16
+}
+
+# static_lm.bin
+# ============================================
+# bigram + unigram in compressed sparse row format
+
+type StaticLMFileMagic struct {
+    magic: data[4]                # CHLM
+    file: StaticLMFile
+}
+
+type StaticLMFile union {StaticLMFileV1}
+
+type StaticLMFileV1 struct {
+    header: StaticLMHeaderV1,
+    index: StaticLMIndexV1,
+}
+
+type StaticLMHeaderV1 struct {
+    flags: u32
+    num_unigrams: u32
+    num_rows: u32
+    num_values: u64
+    col_deltas_len: u64
+}
+
+type StaticLMIndexV1 {
+    unigrams: list<u8>[num_unigrams]
+    r: list<u32>[num_rows]
+    rbo: list<u32>[num_rows]
+    c: list<uint>[num_values]
+    v: list<u8>[num_values]
+}
+
+# history_dict.bin
+# ============================================
+
+type HistoryDictFileMagic struct {
+    magic: data[4]               # CHHD
+    file: HistoryDictFile
+}
+
+type HistoryDictFile union {HistoryDictFileV1}
+
+type HistoryDictFileV1 struct {
+    header: HistoryDictHeader,
+    payload: HistoryDictList,
+}
+
+type HistoryDictHeader struct {
+    flags: u32
+    half_life: u32
+    generation: u64
+    count: u32
+}
+
+type HistoryDictList struct {
+    records: list<HistoryDictEntry>[count]
+}
+
+type HistoryDictEntry struct {
+    syllables: list<u16>
+    word: str
+    seen: u32
+    epoch: u64
+}

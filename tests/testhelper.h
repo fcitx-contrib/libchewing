@@ -17,8 +17,6 @@
 
 uint16_t UintFromPhone(const char *phone);
 
-#define DB_NAME  "chewing.dat"
-
 /* The following macros are modified from GLIB.
  * from GNU cpp Manual:
  * C99 introduces the _Pragma operator. This feature addresses a major problem

@@ -3,14 +3,17 @@
 use std::{
     any::Any,
     cmp::{max, min},
-    error::Error,
-    fmt::{Debug, Display},
+    fmt::Debug,
+    fs::{self, File},
+    hash::{DefaultHasher, Hash, Hasher},
+    io::{BufReader, BufWriter},
     mem,
+    path::PathBuf,
 };
 
 use log::{debug, error, info, warn};
+use scoped_error::{ErrorExt, bail, expect_error, impl_context_error};
 
-pub use self::estimate::{LaxUserFreqEstimate, UserFreqEstimate};
 pub use self::{abbrev::AbbrevTable, selection::symbol::SymbolSelector};
 use self::{
     composition_editor::CompositionEditor,
@@ -19,21 +22,19 @@ use self::{
 };
 use crate::{
     conversion::{
-        ChewingEngine, ConversionEngine, Interval, Symbol, full_width_symbol_input,
-        special_symbol_input,
+        ChewingEngine, ConversionEngine, Decoder, Interval, LatticeBuilder, Outcome, Selection,
+        SimpleEngine, Symbol, full_width_symbol_input, special_symbol_input,
     },
-    dictionary::{
-        AssetLoader, Dictionary, DictionaryUsage, Layered, LookupStrategy, Trie,
-        UpdateDictionaryError, UserDictionaryManager,
-    },
-    exn::{Exn, ResultExt},
+    dictionary::{CompositeDict, LookupStrategy, StringTable},
     input::{KeyState, KeyboardEvent, keysym::*},
-    zhuyin::Syllable,
+    lm::{LoadMode, StaticDict, StaticLm},
+    path::SearchPath,
+    user::{HistoryDict, UserDict, migrate_v3_to_v4, should_migrate_from_v3},
+    zhuyin::{Syllable, SyllableVec},
 };
 
 mod abbrev;
 mod composition_editor;
-mod estimate;
 mod selection;
 pub mod zhuyin_layout;
 
@@ -75,7 +76,6 @@ pub struct EditorOptions {
     pub language_mode: LanguageMode,
     pub character_form: CharacterForm,
     pub user_phrase_add_dir: UserPhraseAddDirection,
-    pub lookup_strategy: LookupStrategy,
     pub conversion_engine: ConversionEngineKind,
     pub enable_fullwidth_toggle_key: bool,
     pub sort_candidates_by_frequency: bool,
@@ -96,8 +96,6 @@ impl Default for EditorOptions {
             language_mode: LanguageMode::Chinese,
             character_form: CharacterForm::Halfwidth,
             user_phrase_add_dir: UserPhraseAddDirection::Forward,
-            lookup_strategy: LookupStrategy::Standard,
-            // FIXME may be out of sync with the engine used
             conversion_engine: ConversionEngineKind::ChewingEngine,
             enable_fullwidth_toggle_key: true,
             sort_candidates_by_frequency: false,
@@ -155,13 +153,21 @@ pub struct Editor {
 
 #[derive(Debug)]
 pub(crate) struct SharedState {
+    // static_words_path: PathBuf,
+    // static_dict_path: PathBuf,
+    user_datadir: Option<PathBuf>,
+    // static_words: StringTable,
+    // static_dict: StaticDict,
     com: CompositionEditor,
     syl: Box<dyn SyllableEditor>,
     conv: Box<dyn ConversionEngine>,
-    dict: Layered,
+    string_table: StringTable,
+    dict: CompositeDict,
+    user_dict: UserDict,
+    hist_dict: HistoryDict,
+    decoder: Decoder,
     abbr: AbbrevTable,
     sym_sel: SymbolSelector,
-    estimate: LaxUserFreqEstimate,
     options: EditorOptions,
     last_key_behavior: EditorKeyBehavior,
 
@@ -172,107 +178,162 @@ pub(crate) struct SharedState {
 }
 
 impl Editor {
-    pub fn chewing<T>(
+    pub fn chewing(
         search_path: Option<String>,
         userpath: Option<String>,
-        enabled_dicts: &[T],
-    ) -> Editor
-    where
-        T: AsRef<str>,
-    {
-        let mut enabled_dicts: Vec<String> = enabled_dicts
-            .iter()
-            .map(|it| it.as_ref().to_owned())
-            .collect();
-        let mut user_dict_mgr = UserDictionaryManager::new();
-        let user_dict = {
-            let mut custom_userpath = false;
-            if let Some(userpath) = userpath {
-                custom_userpath = true;
-                user_dict_mgr = user_dict_mgr.userphrase_path(userpath);
-            }
-            if custom_userpath && let Some(file_name) = user_dict_mgr.file_name() {
-                // If we load user dictionary from passed in path then we should not load it again.
-                if let Some(index) = enabled_dicts.iter().position(|d| d == &file_name) {
-                    enabled_dicts.remove(index);
+    ) -> Result<Editor, NewEditorError> {
+        expect_error("Failed to initialize new chewing Editor", || {
+            let sp = match (search_path, userpath) {
+                (Some(s), Some(u)) => SearchPath::from_system_path_and_user_path(&s, &u),
+                (Some(s), None) => SearchPath::from_system_path_and_env(&s),
+                (None, Some(u)) => SearchPath::from_user_path_and_env(&u),
+                (None, None) => SearchPath::from_env(),
+            };
+
+            let static_dict_path = sp
+                .find_file("static_dict.bin")
+                .ok_or("Failed to find static_dict.bin file")?;
+            let rare_dict_path = sp
+                .find_file("rare_dict.bin")
+                .ok_or("Failed to find rare_dict.bin file")?;
+            let static_words_path = sp
+                .find_file("static_words.bin")
+                .ok_or("Failed to find static_words.bin file")?;
+            let static_lm_path = sp
+                .find_file("static_lm.bin")
+                .ok_or("Failed to find static_lm.bin file")?;
+
+            let static_dict = StaticDict::open(&static_dict_path)?;
+            let rare_dict = StaticDict::open(&rare_dict_path)?;
+            let string_table = StringTable::open_bin(&static_words_path)?;
+
+            let lm = StaticLm::from_reader(
+                BufReader::new(File::open(&static_lm_path)?),
+                // Lazy mode is too slow for now
+                LoadMode::Lazy,
+            )?;
+
+            if let Some(up) = sp.user_datadir() {
+                if should_migrate_from_v3(up) {
+                    migrate_v3_to_v4(up)?;
                 }
             }
-            let user_dict = user_dict_mgr
-                .init()
-                .inspect_err(|error| {
-                    error!("Failed to load user dict: {error}");
-                })
-                .ok();
-            if custom_userpath { user_dict } else { None }
-        };
-        if enabled_dicts.iter().any(|d| d == "chewing-deleted.dat") {
-            if let Err(error) = user_dict_mgr.init_deleted() {
-                error!("Failed to load user exclusion dict: {error}");
-            }
-        }
-        let mut loader = AssetLoader::new();
-        if let Some(syspath) = search_path {
-            loader = loader.search_path(syspath);
-        }
-        let mut dicts = loader.load(&enabled_dicts);
-        if let Some(user_dict) = user_dict {
-            dicts.push(user_dict);
-        }
-        if !dicts.iter().any(|dict| {
-            matches!(
-                dict.about().usage,
-                DictionaryUsage::BuiltIn | DictionaryUsage::Extension | DictionaryUsage::Custom
-            )
-        }) {
-            let builtin = Trie::new(&include_bytes!("data/mini.dat")[..]);
-            error!("Failed to load any system dictionaries");
-            error!("Loading builtin mini dictionary...");
-            // SAFETY: we can unwrap because the built-in dictionary should always be valid.
-            dicts.insert(0, Box::new(builtin.unwrap()));
-        }
 
-        let abbrev = loader.load_abbrev();
-        let abbrev = match abbrev {
-            Ok(abbr) => abbr,
-            Err(e) => {
-                error!("Failed to load abbrev table: {e}");
-                error!("Loading empty table...");
-                AbbrevTable::new()
+            let user_datadir = sp.user_versioned_path();
+
+            if let Some(vp) = &user_datadir {
+                fs::create_dir_all(vp)?;
             }
-        };
-        let sym_sel = loader.load_symbol_selector();
-        let sym_sel = match sym_sel {
-            Ok(sym_sel) => sym_sel,
-            Err(e) => {
-                error!("Failed to load symbol table: {e}");
-                error!("Loading empty table...");
-                // NB: we can unwrap here because empty table is always valid.
-                SymbolSelector::new(b"".as_slice()).unwrap()
+
+            let mut user_dict_path = sp.find_user_file("user_dict.csv");
+            if user_dict_path.is_none() {
+                if let Some(path) = sp.user_file_path("user_dict.csv") {
+                    if let Err(err) = UserDict::init(path) {
+                        error!("{}", err.report());
+                    }
+                }
+                // try again
+                user_dict_path = sp.find_user_file("user_dict.csv");
             }
-        };
-        let mut dict = Layered::new(dicts);
-        let estimate = LaxUserFreqEstimate::max_from(dict.user_dict_mut());
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
-        editor
+            let user_dict = match user_dict_path {
+                Some(path) => match UserDict::open(&path, string_table.clone()) {
+                    Ok(dict) => dict,
+                    Err(err) => {
+                        error!("{}", err.report());
+                        UserDict::new(string_table.clone())
+                    }
+                },
+                None => UserDict::new(string_table.clone()),
+            };
+
+            let mut history_dict_path = sp.find_user_file("history_dict.bin");
+            if history_dict_path.is_none() {
+                if let Some(path) = sp.user_file_path("history_dict.bin") {
+                    if let Err(err) = HistoryDict::init(path) {
+                        error!("{}", err.report());
+                    }
+                }
+                // try again
+                history_dict_path = sp.find_user_file("history_dict.bin");
+            }
+            let hist_dict = match history_dict_path {
+                Some(path) => match HistoryDict::open(&path, string_table.clone()) {
+                    Ok(dict) => dict,
+                    Err(err) => {
+                        error!("{}", err.report());
+                        HistoryDict::new(string_table.clone())
+                    }
+                },
+                None => HistoryDict::new(string_table.clone()),
+            };
+
+            let composite_dict =
+                CompositeDict::new(static_dict, rare_dict, hist_dict.clone(), user_dict.clone());
+
+            let word_lattice_builder = LatticeBuilder {
+                dict: composite_dict.clone(),
+                lookup_strategy: LookupStrategy::Standard,
+            };
+
+            let decoder = Decoder {
+                lm,
+                lambda: Decoder::LAMBDA,
+            };
+
+            let conversion_engine = Box::new(ChewingEngine {
+                word_lattice_builder,
+                decoder: decoder.clone(),
+                string_table: string_table.clone(),
+            });
+
+            let abbrev = match sp.find_file("swkb.dat") {
+                Some(swkb_dat) => AbbrevTable::open(swkb_dat)?,
+                None => AbbrevTable::new(),
+            };
+            let sym_sel = match sp.find_file("symbols.dat") {
+                Some(symbols_dat) => SymbolSelector::open(symbols_dat)?,
+                None => SymbolSelector::new(b"".as_slice())?,
+            };
+
+            let editor = Editor::new(
+                user_datadir,
+                conversion_engine,
+                string_table,
+                composite_dict,
+                user_dict,
+                hist_dict,
+                decoder,
+                abbrev,
+                sym_sel,
+            );
+            Ok(editor)
+        })
     }
 
     pub fn new(
+        user_datadir: Option<PathBuf>,
         conv: Box<dyn ConversionEngine>,
-        dict: Layered,
-        estimate: LaxUserFreqEstimate,
+        string_table: StringTable,
+        dict: CompositeDict,
+        user_dict: UserDict,
+        hist_dict: HistoryDict,
+        decoder: Decoder,
         abbr: AbbrevTable,
         sym_sel: SymbolSelector,
     ) -> Editor {
         Editor {
             shared: SharedState {
+                user_datadir,
                 com: CompositionEditor::default(),
                 syl: Box::new(Standard::new()),
                 conv,
+                string_table,
                 dict,
+                user_dict,
+                hist_dict,
+                decoder,
                 abbr,
                 sym_sel,
-                estimate,
                 options: EditorOptions::default(),
                 last_key_behavior: EditorKeyBehavior::Absorb,
                 dirty_level: 0,
@@ -282,6 +343,10 @@ impl Editor {
             },
             state: Box::new(Entering),
         }
+    }
+
+    pub fn fallback() -> Editor {
+        EditorBuilder::new().build()
     }
 
     pub fn set_syllable_editor(&mut self, syl: Box<dyn SyllableEditor>) {
@@ -322,6 +387,30 @@ impl Editor {
         if self.shared.options.language_mode != old.language_mode {
             self.cancel_entering_syllable();
         }
+        if self.shared.options.conversion_engine != old.conversion_engine {
+            self.shared.conv = match self.shared.options.conversion_engine {
+                ConversionEngineKind::SimpleEngine => Box::new(SimpleEngine {
+                    string_table: self.shared.string_table.clone(),
+                    dict: self.shared.dict.clone(),
+                }),
+                ConversionEngineKind::ChewingEngine => Box::new(ChewingEngine {
+                    word_lattice_builder: LatticeBuilder {
+                        dict: self.shared.dict.clone(),
+                        lookup_strategy: LookupStrategy::Standard,
+                    },
+                    decoder: self.shared.decoder.clone(),
+                    string_table: self.shared.string_table.clone(),
+                }),
+                ConversionEngineKind::FuzzyChewingEngine => Box::new(ChewingEngine {
+                    word_lattice_builder: LatticeBuilder {
+                        dict: self.shared.dict.clone(),
+                        lookup_strategy: LookupStrategy::FuzzyPartialPrefix,
+                    },
+                    decoder: self.shared.decoder.clone(),
+                    string_table: self.shared.string_table.clone(),
+                }),
+            }
+        }
     }
     pub fn entering_syllable(&self) -> bool {
         !self.shared.syl.is_empty()
@@ -338,94 +427,102 @@ impl Editor {
     pub fn symbols(&self) -> &[Symbol] {
         self.shared.com.symbols()
     }
-    pub fn user_dict(&mut self) -> &mut dyn Dictionary {
-        self.shared.dict.user_dict_mut()
+    pub fn user_dict(&self) -> &UserDict {
+        &self.shared.user_dict
     }
     pub fn learn_phrase(
         &mut self,
         syllables: &[Syllable],
         phrase: &str,
     ) -> Result<(), EditorError> {
-        self.shared
-            .learn_phrase(syllables, phrase)
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))
+        self.shared.learn_phrase(syllables, phrase)
     }
     pub fn unlearn_phrase(
         &mut self,
         syllables: &[Syllable],
         phrase: &str,
     ) -> Result<(), EditorError> {
-        self.shared
-            .unlearn_phrase(syllables, phrase)
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))
+        self.shared.unlearn_phrase(syllables, phrase)
     }
     /// All candidates after current page
     pub fn paginated_candidates(&self) -> Result<Vec<String>, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting
-                .candidates(&self.shared, &self.shared.dict)
-                .into_iter()
-                .skip(selecting.page_no * self.shared.options.candidates_per_page)
-                .collect())
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return paginated candidate list", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting
+                    .candidates(&self.shared)
+                    .into_iter()
+                    .skip(selecting.page_no * self.shared.options.candidates_per_page)
+                    .collect())
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn all_candidates(&self) -> Result<Vec<String>, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.candidates(&self.shared, &self.shared.dict))
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return candidate list", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting.candidates(&self.shared))
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn current_page_no(&self) -> Result<usize, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.page_no)
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return current page number", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting.page_no)
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn total_page(&self) -> Result<usize, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.total_page(&self.shared, &self.shared.dict))
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return total page number", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting.total_page(&self.shared))
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn select(&mut self, n: usize) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        let selecting = match any.downcast_mut::<Selecting>() {
-            Some(selecting) => selecting,
-            None => return Err(EditorError::new(EditorErrorKind::InvalidState)),
-        };
-        match selecting.select(&mut self.shared, n) {
-            Transition::ToState(to_state) => {
-                self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
-                self.state = to_state;
+        expect_error("Unable to select candidate", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            let selecting = match any.downcast_mut::<Selecting>() {
+                Some(selecting) => selecting,
+                None => bail!("Editor is not in selecting state"),
+            };
+            match selecting.select(&mut self.shared, n) {
+                Transition::ToState(to_state) => {
+                    self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
+                    self.state = to_state;
+                }
+                Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
             }
-            Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
-        }
-        if self.shared.last_key_behavior == EditorKeyBehavior::Absorb {
-            self.shared.try_auto_commit();
-        }
-        if self.shared.last_key_behavior == EditorKeyBehavior::Bell {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        } else {
-            Ok(())
-        }
+            if self.shared.last_key_behavior == EditorKeyBehavior::Absorb {
+                self.shared.try_auto_commit();
+            }
+            if self.shared.last_key_behavior == EditorKeyBehavior::Bell {
+                bail!("Editor is not in selecting state");
+            } else {
+                Ok(())
+            }
+        })
     }
     pub fn cancel_selecting(&mut self) -> Result<(), EditorError> {
-        if self.is_selecting() {
-            self.shared.cancel_selecting();
-            self.state = Box::new(Entering);
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to cancel select candidate", || {
+            if self.is_selecting() {
+                self.shared.cancel_selecting();
+                self.state = Box::new(Entering);
+                Ok(())
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn cancel_entering_syllable(&mut self) {
         self.shared.syl.clear();
@@ -451,6 +548,9 @@ impl Editor {
     pub fn is_empty(&self) -> bool {
         self.shared.com.is_empty()
     }
+    pub fn hypotheses(&self) -> Vec<Outcome> {
+        self.shared.hypotheses()
+    }
     /// TODO: doc, rename this to `render`?
     pub fn display(&self) -> String {
         self.shared
@@ -464,11 +564,13 @@ impl Editor {
         &self.shared.commit_buffer
     }
     pub fn commit(&mut self) -> Result<(), EditorError> {
-        if self.shared.com.is_empty() {
-            return Err(EditorError::new(EditorErrorKind::InvalidState));
-        }
-        self.shared.commit();
-        Ok(())
+        expect_error("Unable to commit input", || {
+            if self.shared.com.is_empty() {
+                bail!("Commit buffer is empty");
+            }
+            self.shared.commit();
+            Ok(())
+        })
     }
     pub fn has_next_selection_point(&self) -> bool {
         let any = self.state.as_ref() as &dyn Any;
@@ -495,80 +597,144 @@ impl Editor {
         }
     }
     pub fn jump_to_next_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => s.jump_to_next_selection_point(&self.shared.dict),
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => Ok(s.jump_to_next_selection_point(&self.shared.dict)?),
+                    _ => bail!("Editor is not in selecting state"),
+                }
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn jump_to_prev_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => s.jump_to_prev_selection_point(&self.shared.dict),
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => Ok(s.jump_to_prev_selection_point(&self.shared.dict)?),
+                    _ => bail!("Editor is not in selecting state"),
+                }
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn jump_to_first_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => {
-                    s.jump_to_first_selection_point(&self.shared.dict);
-                    Ok(())
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => {
+                        s.jump_to_first_selection_point(&self.shared.dict);
+                        Ok(())
+                    }
+                    _ => bail!("Editor is not in selecting state"),
                 }
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn jump_to_last_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => {
-                    s.jump_to_last_selection_point(&self.shared.dict);
-                    Ok(())
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => {
+                        s.jump_to_last_selection_point(&self.shared.dict);
+                        Ok(())
+                    }
+                    _ => bail!("Editor is not in selecting state"),
                 }
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn start_selecting(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        let transition = if let Some(s) = any.downcast_mut::<Entering>() {
-            s.start_selecting(&mut self.shared)
-        } else if let Some(s) = any.downcast_mut::<EnteringSyllable>() {
-            // Force entering selection
-            s.start_selecting(&mut self.shared)
-        } else {
-            Transition::Spin(EditorKeyBehavior::Bell)
-        };
-        match transition {
-            Transition::ToState(to_state) => {
-                self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
-                self.state = to_state;
+        expect_error("Unable to start selecting", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            let transition = if let Some(s) = any.downcast_mut::<Entering>() {
+                s.start_selecting(&mut self.shared)
+            } else if let Some(s) = any.downcast_mut::<EnteringSyllable>() {
+                // Force entering selection
+                s.start_selecting(&mut self.shared)
+            } else {
+                Transition::Spin(EditorKeyBehavior::Bell)
+            };
+            match transition {
+                Transition::ToState(to_state) => {
+                    self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
+                    self.state = to_state;
+                }
+                Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
             }
-            Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
-        }
-        if self.is_selecting() {
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+            if self.is_selecting() {
+                Ok(())
+            } else {
+                bail!("Current Editor state cannot transit to selecting");
+            }
+        })
     }
     pub fn notification(&self) -> &str {
         &self.shared.notice_buffer
+    }
+    pub fn flush(&self) {
+        if let Some(ud) = self.shared.user_datadir.clone() {
+            let user_dict = self.shared.user_dict.clone();
+            let hist_dict = self.shared.hist_dict.clone();
+
+            let mut file_options = File::options();
+            file_options.create(true).write(true);
+
+            #[cfg(target_family = "unix")]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                file_options.mode(0o600);
+            }
+            let mut hasher = DefaultHasher::new();
+
+            1.hash(&mut hasher);
+            let user_dict_path = ud.join("user_dict.csv");
+            let temp_path = ud.join(format!("{:x}.tmp", hasher.finish()));
+            let temp_file = match file_options.open(&temp_path) {
+                Ok(f) => f,
+                Err(err) => {
+                    error!("Unable to open file: {err}");
+                    return;
+                }
+            };
+            if let Err(err) = user_dict.to_writer(BufWriter::new(temp_file)) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
+            if let Err(err) = fs::rename(&temp_path, &user_dict_path) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
+
+            2.hash(&mut hasher);
+            let hist_dict_path = ud.join("history_dict.bin");
+            let temp_path = ud.join(format!("{:x}.tmp", hasher.finish()));
+            let temp_file = match file_options.open(&temp_path) {
+                Ok(f) => f,
+                Err(err) => {
+                    error!("Unable to open file: {err}");
+                    return;
+                }
+            };
+            if let Err(err) = hist_dict.to_writer(BufWriter::new(temp_file)) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
+            if let Err(err) = fs::rename(&temp_path, &hist_dict_path) {
+                error!("Unable to write user dict file: {err}");
+                return;
+            };
+        }
     }
 }
 
@@ -582,11 +748,14 @@ impl SharedState {
         self.nth_conversion = 0;
     }
     fn conversion(&self) -> Vec<Interval> {
-        let paths = self.conv.convert(&self.dict, self.com.as_ref());
+        let paths = self.conv.convert(self.com.as_ref());
         if paths.is_empty() {
             return vec![];
         }
         paths[self.nth_conversion % paths.len()].intervals.clone()
+    }
+    fn hypotheses(&self) -> Vec<Outcome> {
+        self.conv.convert(self.com.as_ref())
     }
     fn intervals(&self) -> impl DoubleEndedIterator<Item = Interval> + use<> {
         self.conversion().into_iter()
@@ -602,7 +771,12 @@ impl SharedState {
                 continue;
             }
             if interval.is_phrase {
-                self.com.select(interval);
+                let wid = self.string_table.intern(&interval.text);
+                self.com.select(Selection {
+                    start: interval.start,
+                    end: interval.end,
+                    wid,
+                });
             }
         }
         self.nth_conversion = 0;
@@ -616,18 +790,19 @@ impl SharedState {
         start: usize,
         end: usize,
     ) -> Result<(), EditorError> {
-        let result = self.learn_phrase_in_range_quiet(start, end);
-        match &result {
-            Ok(phrase) => {
-                self.notice_buffer = format!("加入：{phrase}");
-                Ok(())
+        expect_error("Unable to learn phrase", || {
+            let result = self.learn_phrase_in_range_quiet(start, end);
+            match &result {
+                Ok(phrase) => {
+                    self.notice_buffer = format!("加入：{phrase}");
+                    Ok(())
+                }
+                Err(msg) => {
+                    msg.clone_into(&mut self.notice_buffer);
+                    bail!("{}", msg)
+                }
             }
-            Err(msg) => {
-                msg.clone_into(&mut self.notice_buffer);
-                Err(UpdateDictionaryError::new("failed to learn new phrase"))
-                    .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))
-            }
-        }
+        })
     }
     // FIXME enhance user visible reporting
     fn learn_phrase_in_range_quiet(&mut self, start: usize, end: usize) -> Result<String, String> {
@@ -653,11 +828,10 @@ impl SharedState {
             .take(end - start)
             .collect::<String>();
         if self
-            .dict
-            .user_dict_mut()
+            .user_dict
             .lookup(&syllables, LookupStrategy::Standard)
             .into_iter()
-            .any(|it| it.as_str() == phrase)
+            .any(|(wid, _)| self.string_table.get_text(wid).is_some_and(|s| s == phrase))
         {
             return Err(format!("已有：{phrase}"));
         }
@@ -670,45 +844,37 @@ impl SharedState {
         result.map(|_| phrase)
     }
     fn learn_phrase(&mut self, syllables: &[Syllable], phrase: &str) -> Result<(), EditorError> {
-        if syllables.len() != phrase.chars().count() {
-            warn!(
-                "syllables({:?})[{}] and phrase({})[{}] has different length",
-                &syllables,
-                syllables.len(),
-                &phrase,
-                phrase.chars().count()
-            );
-            return Err(UpdateDictionaryError::new(
-                "failed to learn phrase: syllables and phrase has different length",
-            ))
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState));
-        }
-        let phrases = self.dict.lookup(syllables, LookupStrategy::Standard);
-        if phrases.is_empty() {
-            self.dict
-                .add_phrase(syllables, (phrase, 10).into())
-                .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
-            return Ok(());
-        }
-        let phrase = phrases
-            .iter()
-            .find(|p| p.as_str() == phrase)
-            .cloned()
-            .unwrap_or((phrase, 10).into());
-        // TODO: fine tune learning curve
-        let max_freq = phrases.iter().map(|p| p.freq()).max().unwrap_or(1);
-        let user_freq = self.estimate.estimate(&phrase, max_freq);
-        let time = self.estimate.now();
-
-        let _ = self.dict.update_phrase(syllables, phrase, user_freq, time);
-        self.dirty_level += 1;
-        Ok(())
+        expect_error("Failed to learn phrase", || {
+            if syllables.len() != phrase.chars().count() {
+                warn!(
+                    "syllables({:?})[{}] and phrase({})[{}] has different length",
+                    &syllables,
+                    syllables.len(),
+                    &phrase,
+                    phrase.chars().count()
+                );
+                bail!(
+                    "syllables({:?})[{}] and phrase({})[{}] has different length",
+                    &syllables,
+                    syllables.len(),
+                    &phrase,
+                    phrase.chars().count()
+                );
+            }
+            let wid = self.string_table.intern(phrase);
+            let phrases = self.user_dict.lookup(syllables, LookupStrategy::Standard);
+            if !phrases.iter().any(|p| p.0 == wid) {
+                self.user_dict.insert(syllables, phrase);
+                return Ok(());
+            }
+            self.hist_dict.observe(syllables, phrase);
+            self.dirty_level += 1;
+            Ok(())
+        })
     }
     fn unlearn_phrase(&mut self, syllables: &[Syllable], phrase: &str) -> Result<(), EditorError> {
-        let _ = self
-            .dict
-            .remove_phrase(syllables, phrase)
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))?;
+        self.user_dict.remove(syllables, phrase);
+        self.hist_dict.remove(syllables, phrase);
         self.dirty_level += 1;
         Ok(())
     }
@@ -774,29 +940,10 @@ impl SharedState {
     }
     fn auto_learn(&mut self, intervals: &[Interval]) {
         for (syllables, phrase) in collect_new_phrases(intervals, self.com.symbols()) {
-            if self.dict.is_excluded(&syllables, &phrase) {
-                debug!("skip autolearn excluded phrase {phrase} {syllables:?}");
-                continue;
-            }
-            if let Err(error) = self.learn_phrase(&syllables, &phrase) {
-                error!("Failed to learn phrase {phrase} from {syllables:?}: {error:#}");
-            }
+            self.hist_dict.observe(&syllables, &phrase);
+            self.dirty_level += 1;
         }
     }
-}
-
-#[rustfmt::skip]
-fn is_break_word(word: &str) -> bool {
-    ["是", "的", "了", "不",
-     "也", "而", "你", "我",
-     "他", "與", "它", "她",
-     "其", "就", "和", "或",
-     "們", "性", "員", "子",
-     "上", "下", "中", "內",
-     "外", "化", "者", "家",
-     "兒", "年", "月", "日",
-     "時", "分", "秒", "街",
-     "路", "村", "在"].contains(&word)
 }
 
 fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<Syllable>, String)> {
@@ -811,7 +958,7 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
         }
     };
     // Step 1. collect all intervals
-    for interval in intervals.iter().filter(|it| it.is_phrase) {
+    for interval in intervals.iter().filter(|it| it.len() > 1 && it.is_phrase) {
         let syllables = symbols[interval.start..interval.end]
             .iter()
             .map(|s| s.to_syllable().unwrap())
@@ -819,25 +966,9 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
         let pending = interval.text.clone().into_string();
         collect(syllables, pending);
     }
-    // Step 2. collect all intervals with length one with break words removed
-    for interval in intervals.iter() {
-        if interval.is_phrase && interval.len() == 1 && !is_break_word(&interval.text) {
-            pending.push_str(&interval.text);
-            syllables.extend(
-                symbols[interval.start..interval.end]
-                    .iter()
-                    .map(|s| s.to_syllable().unwrap()),
-            );
-        } else if !pending.is_empty() {
-            collect(mem::take(&mut syllables), mem::take(&mut pending));
-        }
-    }
-    if !pending.is_empty() {
-        collect(mem::take(&mut syllables), mem::take(&mut pending));
-    }
-    // Step 3. collect all intervals with length one including break words
+    // Step 2. collect all intervals with length one including break words
     for interval in intervals {
-        if interval.is_phrase && interval.len() == 1 {
+        if interval.is_phrase && interval.len() == 1 && syllables.len() < SyllableVec::MAX_LEN {
             pending.push_str(&interval.text);
             syllables.extend(
                 symbols[interval.start..interval.end]
@@ -857,7 +988,6 @@ fn collect_new_phrases(intervals: &[Interval], symbols: &[Symbol]) -> Vec<(Vec<S
 impl BasicEditor for Editor {
     fn process_keyevent(&mut self, key_event: KeyboardEvent) -> EditorKeyBehavior {
         info!("process {}", key_event);
-        self.shared.estimate.tick();
         // reset?
         self.shared.notice_buffer.clear();
         if self.shared.last_key_behavior == EditorKeyBehavior::Commit {
@@ -895,8 +1025,7 @@ impl BasicEditor for Editor {
         debug!("comp: {:?}", &self.shared.com);
         const DIRTY_THRESHOLD: u16 = 0;
         if self.shared.dirty_level > DIRTY_THRESHOLD {
-            let _ = self.shared.dict.reopen();
-            let _ = self.shared.dict.flush();
+            let _ = self.flush();
             self.shared.dirty_level = 0;
         }
         self.shared.last_key_behavior
@@ -1293,18 +1422,20 @@ impl State for EnteringSyllable {
                 self.start_entering()
             }
             _ => {
-                let key_behavior = match shared.options.lookup_strategy {
+                let lookup_strategy = match shared.options.conversion_engine {
+                    ConversionEngineKind::ChewingEngine | ConversionEngineKind::SimpleEngine => {
+                        LookupStrategy::Standard
+                    }
+                    ConversionEngineKind::FuzzyChewingEngine => LookupStrategy::FuzzyPartialPrefix,
+                };
+                let key_behavior = match lookup_strategy {
                     LookupStrategy::FuzzyPartialPrefix => shared.syl.fuzzy_key_press(ev),
                     LookupStrategy::Standard => shared.syl.key_press(ev),
                 };
                 match key_behavior {
                     KeyBehavior::Absorb => self.spin_absorb(),
                     KeyBehavior::Fuzzy(syl) => {
-                        if !shared
-                            .dict
-                            .lookup(&[syl], shared.options.lookup_strategy)
-                            .is_empty()
-                        {
+                        if !shared.dict.lookup(&[syl], lookup_strategy).is_empty() {
                             shared.com.insert(Symbol::from(syl));
                         }
                         self.spin_absorb()
@@ -1312,7 +1443,7 @@ impl State for EnteringSyllable {
                     KeyBehavior::Commit => {
                         if !shared
                             .dict
-                            .lookup(&[shared.syl.read()], shared.options.lookup_strategy)
+                            .lookup(&[shared.syl.read()], lookup_strategy)
                             .is_empty()
                         {
                             shared.com.insert(Symbol::from(shared.syl.read()));
@@ -1343,7 +1474,7 @@ impl Selecting {
 
         let mut sel = PhraseSelector::new(
             !editor.options.phrase_choice_rearward,
-            editor.options.lookup_strategy,
+            editor.options.conversion_engine,
             editor.com.to_composition(),
         );
         sel.init(editor.cursor(), &editor.dict);
@@ -1360,7 +1491,7 @@ impl Selecting {
 
         let mut sel = PhraseSelector::new(
             false,
-            editor.options.lookup_strategy,
+            editor.options.conversion_engine,
             editor.com.to_composition(),
         );
         sel.init_single_word(editor.cursor());
@@ -1396,17 +1527,22 @@ impl Selecting {
             }
         }
     }
-    fn candidates(&self, editor: &SharedState, dict: &Layered) -> Vec<String> {
+    fn candidates(&self, editor: &SharedState) -> Vec<String> {
         let res = match &self.sel {
-            Selector::Phrase(sel) => sel.candidates(editor, dict),
+            Selector::Phrase(sel) => sel
+                .candidates(editor)
+                .into_iter()
+                .filter_map(|wid| editor.string_table.get_text(wid))
+                .map(|s| s.into())
+                .collect(),
             Selector::Symbol(sel) => sel.menu(),
             Selector::SpecialSymmbol(sel) => sel.menu(),
         };
         debug!("show candidates: {res:?}");
         res
     }
-    fn total_page(&self, editor: &SharedState, dict: &Layered) -> usize {
-        self.candidates(editor, dict)
+    fn total_page(&self, editor: &SharedState) -> usize {
+        self.candidates(editor)
             .len()
             .div_ceil(editor.options.candidates_per_page)
     }
@@ -1414,12 +1550,16 @@ impl Selecting {
         let offset = self.page_no * editor.options.candidates_per_page + n;
         match self.sel {
             Selector::Phrase(ref sel) => {
-                let candidates = sel.candidates(editor, &editor.dict);
+                let candidates = sel.candidates(editor);
                 match candidates.get(offset) {
-                    Some(phrase) => {
-                        let interval = sel.interval(phrase.as_str());
-                        let len = interval.len();
-                        editor.com.select(interval);
+                    Some(wid) => {
+                        let selection = Selection {
+                            start: sel.begin(),
+                            end: sel.end(),
+                            wid: *wid,
+                        };
+                        let len = selection.len();
+                        editor.com.select(selection);
                         debug!("Auto Shift {}", editor.options.auto_shift_cursor);
                         editor.com.pop_cursor();
                         if editor.options.auto_shift_cursor {
@@ -1490,7 +1630,7 @@ impl State for Selecting {
                 self.start_entering()
             }
             SYM_DOWN | SYM_SPACE => {
-                if self.page_no + 1 < self.total_page(shared, &shared.dict) {
+                if self.page_no + 1 < self.total_page(shared) {
                     self.page_no += 1;
                 } else {
                     self.page_no = 0;
@@ -1518,7 +1658,7 @@ impl State for Selecting {
                 if sym.is_syllable() {
                     let mut sel = PhraseSelector::new(
                         !shared.options.phrase_choice_rearward,
-                        shared.options.lookup_strategy,
+                        shared.options.conversion_engine,
                         shared.com.to_composition(),
                     );
                     sel.init(shared.cursor(), &shared.dict);
@@ -1544,7 +1684,7 @@ impl State for Selecting {
                 if sym.is_syllable() {
                     let mut sel = PhraseSelector::new(
                         !shared.options.phrase_choice_rearward,
-                        shared.options.lookup_strategy,
+                        shared.options.conversion_engine,
                         shared.com.to_composition(),
                     );
                     sel.init(shared.cursor(), &shared.dict);
@@ -1559,12 +1699,12 @@ impl State for Selecting {
                 if self.page_no > 0 {
                     self.page_no -= 1;
                 } else {
-                    self.page_no = self.total_page(shared, &shared.dict).saturating_sub(1);
+                    self.page_no = self.total_page(shared).saturating_sub(1);
                 }
                 self.spin_absorb()
             }
             SYM_RIGHT | SYM_PAGEDOWN => {
-                if self.page_no + 1 < self.total_page(shared, &shared.dict) {
+                if self.page_no + 1 < self.total_page(shared) {
                     self.page_no += 1;
                 } else {
                     self.page_no = 0;
@@ -1633,47 +1773,124 @@ impl State for Highlighting {
     }
 }
 
-/// All different errors that may happen when changing editor state.
 #[derive(Debug)]
-pub enum EditorErrorKind {
-    /// Requested invalid state change.
-    InvalidState,
-    /// Requested invalid input.
-    InvalidInput,
-    /// Requested state change was not possible.
-    Impossible,
+pub struct EditorBuilder {
+    string_table: StringTable,
+    static_dict: StaticDict,
+    rare_dict: StaticDict,
+    user_dict: UserDict,
+    history_dict: HistoryDict,
+    lm: StaticLm,
+    abbrev: AbbrevTable,
+    sym_sel: SymbolSelector,
+    lookup_strategy: LookupStrategy,
 }
 
-#[derive(Debug)]
-pub struct EditorError {
-    kind: EditorErrorKind,
-    source: Option<Box<dyn Error + Send + Sync + 'static>>,
-}
+impl EditorBuilder {
+    pub fn new() -> Self {
+        let string_table = StringTable::new();
+        let user_dict = UserDict::new(string_table.clone());
+        let history_dict = HistoryDict::new(string_table.clone());
 
-impl EditorError {
-    fn new(kind: EditorErrorKind) -> EditorError {
-        EditorError { kind, source: None }
+        Self {
+            string_table,
+            static_dict: StaticDict::new(),
+            rare_dict: StaticDict::new(),
+            user_dict,
+            history_dict,
+            lm: StaticLm::new(),
+            abbrev: AbbrevTable::new(),
+            sym_sel: SymbolSelector::default(),
+            lookup_strategy: LookupStrategy::Standard,
+        }
+    }
+
+    pub fn string_table(mut self, st: StringTable) -> Self {
+        self.string_table = st;
+        self
+    }
+
+    pub fn static_dict(mut self, d: StaticDict) -> Self {
+        self.static_dict = d;
+        self
+    }
+
+    pub fn rare_dict(mut self, d: StaticDict) -> Self {
+        self.rare_dict = d;
+        self
+    }
+
+    pub fn user_dict(mut self, d: UserDict) -> Self {
+        self.user_dict = d;
+        self
+    }
+
+    pub fn history_dict(mut self, d: HistoryDict) -> Self {
+        self.history_dict = d;
+        self
+    }
+
+    pub fn static_lm(mut self, lm: StaticLm) -> Self {
+        self.lm = lm;
+        self
+    }
+
+    pub fn lookup_strategy(mut self, s: LookupStrategy) -> Self {
+        self.lookup_strategy = s;
+        self
+    }
+
+    pub fn build(self) -> Editor {
+        let dict = CompositeDict::new(
+            self.static_dict.clone(),
+            self.rare_dict.clone(),
+            self.history_dict.clone(),
+            self.user_dict.clone(),
+        );
+
+        let word_lattice_builder = LatticeBuilder {
+            dict: dict.clone(),
+            lookup_strategy: self.lookup_strategy,
+        };
+
+        let decoder = Decoder {
+            lm: self.lm,
+            lambda: Decoder::LAMBDA,
+        };
+        let conversion_engine = Box::new(ChewingEngine {
+            word_lattice_builder,
+            decoder: decoder.clone(),
+            string_table: self.string_table.clone(),
+        });
+
+        Editor::new(
+            None,
+            conversion_engine,
+            self.string_table,
+            dict,
+            self.user_dict,
+            self.history_dict,
+            decoder,
+            self.abbrev,
+            self.sym_sel,
+        )
     }
 }
 
-impl Display for EditorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Editor cannot perform requested action: {:?}", self.kind)
-    }
-}
-
-impl_exn!(EditorError);
+impl_context_error!(pub EditorError);
+impl_context_error!(pub NewEditorError);
 
 #[cfg(test)]
 mod tests {
+    use super::BasicEditor;
     use super::collect_new_phrases;
-    use super::estimate::LaxUserFreqEstimate;
-    use super::{BasicEditor, Editor};
-    use crate::editor::LanguageMode;
+    use crate::dictionary::StringTableBuilder;
+    use crate::editor::{EditorBuilder, LanguageMode};
+    use crate::lm::StaticDictBuilder;
+    use crate::user::UserDict;
     use crate::{
-        conversion::{ChewingEngine, Interval, Symbol},
-        dictionary::{Layered, TrieBuf},
-        editor::{EditorKeyBehavior, SymbolSelector, abbrev::AbbrevTable},
+        conversion::{Interval, Symbol},
+        editor::EditorKeyBehavior,
         input::{
             KeyboardEvent, keycode,
             keymap::{QWERTY_MAP, map_ascii},
@@ -1691,12 +1908,7 @@ mod tests {
 
     #[test]
     fn editing_mode_input_bopomofo() {
-        let dict = Layered::new(vec![Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut editor = EditorBuilder::new().build();
 
         let ev = KeyboardEvent {
             code: keycode::KEY_H,
@@ -1721,16 +1933,19 @@ mod tests {
 
     #[test]
     fn editing_mode_input_bopomofo_commit() {
-        let dict = TrieBuf::from([(
-            vec![crate::syl![bpmf::C, bpmf::E, bpmf::TONE4]],
-            vec![("冊", 100)],
-        )]);
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .build();
 
         let keys = [b'h', b'k', b'4'];
         let key_behaviors: Vec<_> = keys
@@ -1753,16 +1968,27 @@ mod tests {
 
     #[test]
     fn editing_mode_input_bopomofo_select() {
-        let dict = TrieBuf::from([(
-            vec![crate::syl![bpmf::C, bpmf::E, bpmf::TONE4]],
-            vec![("冊", 100), ("測", 200)],
-        )]);
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("測").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let user_dict = UserDict::new(string_table.clone());
+        user_dict.boost(&[syl![bpmf::C, bpmf::E, bpmf::TONE4]], "測");
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .user_dict(user_dict)
+            .build();
 
         editor.set_editor_options(|opt| opt.sort_candidates_by_frequency = false);
 
@@ -1798,16 +2024,27 @@ mod tests {
 
     #[test]
     fn editing_mode_input_bopomofo_select_sorted() {
-        let dict = TrieBuf::from([(
-            vec![crate::syl![bpmf::C, bpmf::E, bpmf::TONE4]],
-            vec![("冊", 100), ("測", 200)],
-        )]);
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("測").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let user_dict = UserDict::new(string_table.clone());
+        user_dict.boost(&[syl![bpmf::C, bpmf::E, bpmf::TONE4]], "測");
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .user_dict(user_dict)
+            .build();
 
         editor.set_editor_options(|opt| opt.sort_candidates_by_frequency = true);
 
@@ -1843,16 +2080,20 @@ mod tests {
 
     #[test]
     fn editing_mode_input_chinese_to_english_mode() {
-        let dict = TrieBuf::from([(
-            vec![crate::syl![bpmf::C, bpmf::E, bpmf::TONE4]],
-            vec![("冊", 100)],
-        )]);
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .build();
 
         let keys = [
             map_ascii(&QWERTY_MAP, b'h'),
@@ -1884,16 +2125,20 @@ mod tests {
 
     #[test]
     fn editing_mode_input_english_to_chinese_mode() {
-        let dict = TrieBuf::from([(
-            vec![crate::syl![bpmf::C, bpmf::E, bpmf::TONE4]],
-            vec![("冊", 100)],
-        )]);
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .build();
 
         let keys = [
             // Switch to english mode
@@ -1941,13 +2186,7 @@ mod tests {
 
     #[test]
     fn editing_mode_input_switch_mode_behavior() {
-        let dict = TrieBuf::new_in_memory();
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut editor = EditorBuilder::new().build();
 
         editor.set_editor_options(|opt| opt.language_mode = LanguageMode::English);
 
@@ -1961,16 +2200,19 @@ mod tests {
 
     #[test]
     fn editing_chinese_mode_input_special_symbol() {
-        let dict = TrieBuf::from([(
-            vec![crate::syl![bpmf::C, bpmf::E, bpmf::TONE4]],
-            vec![("冊", 100)],
-        )]);
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .build();
 
         let keys = [
             map_ascii(&QWERTY_MAP, b'!'),
@@ -2001,13 +2243,7 @@ mod tests {
 
     #[test]
     fn editing_mode_input_full_shape_symbol() {
-        let dict = TrieBuf::new_in_memory();
-        let dict = Layered::new(vec![Box::new(dict), Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut editor = EditorBuilder::new().build();
 
         editor.shared.switch_character_form();
 
@@ -2041,12 +2277,7 @@ mod tests {
 
     #[test]
     fn editing_mode_open_empty_symbol_table_then_bell() {
-        let dict = Layered::new(vec![Box::new(TrieBuf::new_in_memory())]);
-        let conversion_engine = Box::new(ChewingEngine::new());
-        let estimate = LaxUserFreqEstimate::new(0);
-        let abbrev = AbbrevTable::new();
-        let sym_sel = SymbolSelector::default();
-        let mut editor = Editor::new(conversion_engine, dict, estimate, abbrev, sym_sel);
+        let mut editor = EditorBuilder::new().build();
 
         let ev = map_ascii(&QWERTY_MAP, b'`');
         let key_behavior = editor.process_keyevent(ev);
@@ -2161,8 +2392,6 @@ mod tests {
                     ],
                     "今天".to_string()
                 ),
-                (vec![syl![bpmf::I, bpmf::EH, bpmf::TONE3]], "也".to_string()),
-                (vec![syl![bpmf::SH, bpmf::TONE4]], "是".to_string()),
                 (
                     vec![
                         syl![bpmf::H, bpmf::AU, bpmf::TONE3],

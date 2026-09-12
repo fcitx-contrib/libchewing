@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
         chewing_sys_path = CHEWING_DATA_PREFIX;
 
     /* for the sake of testing, we should not change existing hash data */
-    userphrase_path = get_test_userphrase_path();
+    userphrase_path = "/tmp";
 
     for (i = 0; i != flag_loop; i++) {
         ChewingContext *ctx;

@@ -34,9 +34,8 @@
 //! use chewing::editor::{BasicEditor, Editor};
 //! use chewing::input::{keycode, keysym, KeyboardEvent};
 //! use chewing::input::keymap::{map_ascii, QWERTY_MAP};
-//! use chewing::dictionary::DEFAULT_DICT_NAMES;
 //!
-//! let mut editor = Editor::chewing(None, None, &DEFAULT_DICT_NAMES);
+//! let mut editor = Editor::chewing(None, None)?;
 //!
 //! editor.process_keyevent(map_ascii(&QWERTY_MAP, b'd'));
 //! editor.process_keyevent(map_ascii(&QWERTY_MAP, b'j'));
@@ -54,33 +53,19 @@
 //! # Dictionary Files
 //!
 //! Chewing requires dictionary files at runtime. By default
-//! [SystemDictionaryLoader][dictionary::SystemDictionaryLoader] will search
+//! [SearchPath](`crate::path::SearchPath`) will search
 //! dictionaries from pre-configured system paths. See the [path] module level
 //! document for the search order.
 //!
 //! `chewing-cli` can be used to compile the dictionary files.
-//!
-//! ```sh
-//! cargo install chewing-cli
-//! cd data
-//! chewing-cli init-database -t trie tsi.src tsi.dat
-//! chewing-cli init-database -t trie word.src word.dat
-//! ```
-//!
-//! After the `tsi.dat` and `word.dat` files are generated, copy them to
-//! `/usr/share/libchewing` or corresponding path on other platforms. They can
-//! also be placed at user's home directory `$HOME/.config/chewing` which has
-//! higher priority than the system path.
-//!
-//! Other required files `swkb.dat` and `symbols.dat` can be copied directly to
-//! the dictionary folder.
 
-#[macro_use]
-mod exn;
-
+mod bare;
 pub mod conversion;
 pub mod dictionary;
 pub mod editor;
 pub mod input;
+pub mod lm;
+pub mod model;
 pub mod path;
+pub mod user;
 pub mod zhuyin;

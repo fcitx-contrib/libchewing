@@ -6,15 +6,17 @@ use std::{
 };
 
 pub use self::chewing::ChewingEngine;
-pub use self::fuzzy::FuzzyChewingEngine;
+pub use self::decoder::{Decoder, Hypothesis};
 pub use self::simple::SimpleEngine;
 pub(crate) use self::symbol::{full_width_symbol_input, special_symbol_input};
-use crate::{dictionary::Dictionary, zhuyin::Syllable};
+pub use self::word_lattice::{Lattice, LatticeBuilder};
+use crate::{model::WordId, zhuyin::Syllable};
 
 mod chewing;
-mod fuzzy;
+mod decoder;
 mod simple;
 mod symbol;
+mod word_lattice;
 
 /// Converts a composition buffer to list of intervals.
 ///
@@ -22,13 +24,13 @@ mod symbol;
 /// put intervals should cover the whole range of inputs, sorted in first in
 /// first out order.
 pub trait ConversionEngine: Debug {
-    fn convert<'a>(&'a self, dict: &'a dyn Dictionary, comp: &'a Composition) -> Vec<Outcome>;
+    fn convert<'a>(&'a self, comp: &'a Composition) -> Vec<Outcome>;
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Outcome {
-    pub(crate) intervals: Vec<Interval>,
-    pub(crate) log_prob: f64,
+    pub intervals: Vec<Interval>,
+    pub cost: f64,
 }
 
 /// Output of conversion.
@@ -63,9 +65,6 @@ impl Interval {
     fn contains_range(&self, start: usize, end: usize) -> bool {
         self.start <= start && self.end >= end
     }
-    fn is_contained_by(&self, start: usize, end: usize) -> bool {
-        start <= self.start && end >= self.end
-    }
     /// Whether the interval covers the part of the other interval.
     pub fn intersect(&self, other: &Interval) -> bool {
         self.intersect_range(other.start, other.end)
@@ -80,15 +79,6 @@ impl Interval {
     /// Whether the interval is empty (no output).
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-    /// Return the texts in the interval
-    pub fn sub_intervals(&self) -> impl Iterator<Item = Interval> {
-        self.text.chars().enumerate().map(|(offset, ch)| Interval {
-            start: self.start + offset,
-            end: self.start + offset + 1,
-            is_phrase: self.is_phrase,
-            text: ch.to_string().into_boxed_str(),
-        })
     }
 }
 
@@ -111,14 +101,14 @@ pub enum Symbol {
     /// Chinese syllable
     Syllable(Syllable),
     /// Any direct character
-    Char(char),
+    Grapheme(char),
 }
 
 impl Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Symbol::Syllable(syl) => f.debug_tuple("S").field(&syl.to_string()).finish(),
-            Symbol::Char(ch) => f.debug_tuple("C").field(&ch).finish(),
+            Symbol::Grapheme(ch) => f.debug_tuple("C").field(&ch).finish(),
         }
     }
 }
@@ -128,18 +118,18 @@ impl Symbol {
         matches!(self, Symbol::Syllable(_))
     }
     pub fn is_char(&self) -> bool {
-        matches!(self, Symbol::Char(_))
+        matches!(self, Symbol::Grapheme(_))
     }
     pub fn to_syllable(self) -> Option<Syllable> {
         match self {
             Symbol::Syllable(syllable) => Some(syllable),
-            Symbol::Char(_) => None,
+            Symbol::Grapheme(_) => None,
         }
     }
     pub fn to_char(self) -> Option<char> {
         match self {
             Symbol::Syllable(_) => None,
-            Symbol::Char(c) => Some(c),
+            Symbol::Grapheme(c) => Some(c),
         }
     }
 }
@@ -152,7 +142,33 @@ impl From<Syllable> for Symbol {
 
 impl From<char> for Symbol {
     fn from(value: char) -> Self {
-        Symbol::Char(value)
+        Symbol::Grapheme(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Selection {
+    /// The starting offset of the interval.
+    pub start: usize,
+    /// The end (exclusive) of the interval.
+    pub end: usize,
+    /// The selected word_id.
+    pub wid: WordId,
+}
+
+impl Selection {
+    pub fn len(&self) -> usize {
+        self.end - self.start
+    }
+    pub fn is_contained_by(&self, start: usize, end: usize) -> bool {
+        start <= self.start && end >= self.end
+    }
+    /// Whether the selection covers the part of the other selection.
+    pub fn intersect(&self, other: &Selection) -> bool {
+        self.intersect_range(other.start, other.end)
+    }
+    fn intersect_range(&self, start: usize, end: usize) -> bool {
+        max(self.start, start) < min(self.end, end)
     }
 }
 
@@ -164,7 +180,7 @@ pub struct Composition {
     /// User indicates offset that shouldn't form a phrase.
     gaps: Vec<Gap>,
     /// User set constraint on that output must match.
-    selections: Vec<Interval>,
+    selections: Vec<Selection>,
 }
 
 impl Composition {
@@ -209,7 +225,7 @@ impl Composition {
     pub fn gaps(&self) -> &[Gap] {
         &self.gaps
     }
-    pub fn selections(&self) -> &[Interval] {
+    pub fn selections(&self) -> &[Selection] {
         &self.selections
     }
     pub fn gap(&self, index: usize) -> Option<Gap> {
@@ -273,21 +289,21 @@ impl Composition {
         self.symbols[index] = sym;
         self.set_gap(index, Gap::Normal);
     }
-    pub fn push_selection(&mut self, interval: Interval) {
-        assert!(interval.end <= self.len());
+    pub fn push_selection(&mut self, selection: Selection) {
+        assert!(selection.end <= self.len());
         let mut to_remove = vec![];
-        for (i, selection) in self.selections.iter().enumerate() {
-            if selection.intersect(&interval) {
+        for (i, s) in self.selections.iter().enumerate() {
+            if selection.intersect(&s) {
                 to_remove.push(i);
             }
         }
         for i in to_remove.into_iter().rev() {
             self.selections.swap_remove(i);
         }
-        for i in (interval.start..interval.end).skip(1) {
+        for i in (selection.start..selection.end).skip(1) {
             self.gaps[i] = Gap::Normal;
         }
-        self.selections.push(interval);
+        self.selections.push(selection);
     }
     pub fn remove_front(&mut self, n: usize) {
         assert!(n <= self.len());
@@ -335,5 +351,34 @@ impl Composition {
         self.symbols.clear();
         self.gaps.clear();
         self.selections.clear();
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::model::WordId;
+
+    use super::Selection;
+
+    #[test]
+    fn selection_intersect() {
+        let s1 = Selection {
+            start: 1,
+            end: 3,
+            wid: WordId(1),
+        };
+        let s2 = Selection {
+            start: 2,
+            end: 4,
+            wid: WordId(2),
+        };
+        let s3 = Selection {
+            start: 4,
+            end: 6,
+            wid: WordId(3),
+        };
+        assert!(s1.intersect(&s2));
+        assert!(!s1.intersect(&s3));
+        assert!(!s2.intersect(&s3));
     }
 }

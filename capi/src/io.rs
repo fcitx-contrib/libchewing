@@ -11,8 +11,8 @@ use std::{
 };
 
 use chewing::{
-    conversion::{ChewingEngine, FuzzyChewingEngine, Interval, SimpleEngine, Symbol},
-    dictionary::{DEFAULT_DICT_NAMES, LookupStrategy},
+    conversion::{Interval, Symbol},
+    dictionary::LookupStrategy,
     editor::{
         BasicEditor, CharacterForm, ConversionEngineKind, Editor, EditorKeyBehavior, LanguageMode,
         UserPhraseAddDirection,
@@ -98,6 +98,30 @@ unsafe fn str_from_ptr_with_nul<'a>(ptr: *const c_char) -> Option<&'a str> {
         .and_then(|data| str::from_utf8(unsafe { mem::transmute::<&[c_char], &[u8]>(data) }).ok())
 }
 
+macro_rules! as_mut_or_return {
+    ($ctx:expr) => {
+        match unsafe { $ctx.as_mut() } {
+            Some(ctx) => ctx,
+            None => return,
+        }
+    };
+    ($ctx:expr, $ret:expr) => {
+        match unsafe { $ctx.as_mut() } {
+            Some(ctx) => ctx,
+            None => return $ret,
+        }
+    };
+}
+
+macro_rules! as_ref_or_return {
+    ($ctx:expr, $ret:expr) => {
+        match unsafe { $ctx.as_ref() } {
+            Some(ctx) => ctx,
+            None => return $ret,
+        }
+    };
+}
+
 /// Creates a new instance of the Chewing IM.
 ///
 /// The return value is a pointer to the new Chewing IM instance.
@@ -162,7 +186,7 @@ pub unsafe extern "C" fn chewing_new2(
 pub unsafe extern "C" fn chewing_new3(
     syspath: *const c_char,
     userpath: *const c_char,
-    enabled_dicts: *const c_char,
+    _enabled_dicts: *const c_char,
     logger_fn: Option<
         unsafe extern "C" fn(data: *mut c_void, level: c_int, fmt: *const c_char, ...),
     >,
@@ -170,15 +194,6 @@ pub unsafe extern "C" fn chewing_new3(
 ) -> *mut ChewingContext {
     let _ = crate::logger::init();
     let _logger_guard = init_scoped_logging(logger_fn, logger_data);
-    let mut dict_names: Vec<String> = DEFAULT_DICT_NAMES.iter().map(|&n| n.to_owned()).collect();
-    if !enabled_dicts.is_null() {
-        if let Ok(enabled_dicts) = unsafe { CStr::from_ptr(enabled_dicts).to_str() } {
-            dict_names = enabled_dicts
-                .split(",")
-                .map(|n| n.trim().to_owned())
-                .collect();
-        }
-    }
     let syspath = if syspath.is_null() {
         None
     } else {
@@ -194,7 +209,7 @@ pub unsafe extern "C" fn chewing_new3(
             .map(|p| p.to_owned())
     };
     let kb_compat = KeyboardLayoutCompat::Default;
-    let editor = Editor::chewing(syspath, userpath, &dict_names);
+    let editor = Editor::chewing(syspath, userpath).unwrap_or_else(|_| Editor::fallback());
     let context = Box::new(ChewingContext {
         kb_compat,
         keymap: &QWERTY_MAP,
@@ -247,6 +262,9 @@ pub unsafe extern "C" fn chewing_get_defaultDictionaryNames() -> *const c_char {
 /// This function should be called with valid pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn chewing_delete(ctx: *mut ChewingContext) {
+    let ctx_ref = as_mut_or_return!(ctx);
+    let _ = ctx_ref.editor.flush();
+
     if !ctx.is_null() {
         info!("Destroying context {ctx:?}");
         drop(unsafe { Box::from_raw(ctx) })
@@ -283,30 +301,6 @@ pub unsafe extern "C" fn chewing_free(ptr: *mut c_void) {
             }
         };
     }
-}
-
-macro_rules! as_mut_or_return {
-    ($ctx:expr) => {
-        match unsafe { $ctx.as_mut() } {
-            Some(ctx) => ctx,
-            None => return,
-        }
-    };
-    ($ctx:expr, $ret:expr) => {
-        match unsafe { $ctx.as_mut() } {
-            Some(ctx) => ctx,
-            None => return $ret,
-        }
-    };
-}
-
-macro_rules! as_ref_or_return {
-    ($ctx:expr, $ret:expr) => {
-        match unsafe { $ctx.as_ref() } {
-            Some(ctx) => ctx,
-            None => return $ret,
-        }
-    };
 }
 
 /// Reset the context but keep all settings.
@@ -529,24 +523,9 @@ pub unsafe extern "C" fn chewing_config_set_int(
         }
         "chewing.conversion_engine" => {
             options.conversion_engine = match value {
-                SIMPLE_CONVERSION_ENGINE => {
-                    ctx.editor
-                        .set_conversion_engine(Box::new(SimpleEngine::new()));
-                    options.lookup_strategy = LookupStrategy::Standard;
-                    ConversionEngineKind::SimpleEngine
-                }
-                CHEWING_CONVERSION_ENGINE => {
-                    ctx.editor
-                        .set_conversion_engine(Box::new(ChewingEngine::new()));
-                    options.lookup_strategy = LookupStrategy::Standard;
-                    ConversionEngineKind::ChewingEngine
-                }
-                FUZZY_CHEWING_CONVERSION_ENGINE => {
-                    ctx.editor
-                        .set_conversion_engine(Box::new(FuzzyChewingEngine::new()));
-                    options.lookup_strategy = LookupStrategy::FuzzyPartialPrefix;
-                    ConversionEngineKind::FuzzyChewingEngine
-                }
+                SIMPLE_CONVERSION_ENGINE => ConversionEngineKind::SimpleEngine,
+                CHEWING_CONVERSION_ENGINE => ConversionEngineKind::ChewingEngine,
+                FUZZY_CHEWING_CONVERSION_ENGINE => ConversionEngineKind::FuzzyChewingEngine,
                 _ => return ERROR,
             }
         }
@@ -1277,7 +1256,9 @@ pub unsafe extern "C" fn chewing_userphrase_enumerate(ctx: *mut ChewingContext) 
     let ctx = as_mut_or_return!(ctx, ERROR);
     let _logger_guard = init_scoped_logging(ctx.logger_fn, ctx.logger_data);
 
-    ctx.userphrase_iter = Some(ctx.editor.user_dict().entries().peekable());
+    ctx.userphrase_iter = Some(
+        (Box::new(ctx.editor.user_dict().entries()) as Box<dyn Iterator<Item = _>>).peekable(),
+    );
     OK
 }
 
@@ -1483,13 +1464,14 @@ pub unsafe extern "C" fn chewing_userphrase_lookup(
         None => return 0,
     };
 
+    let ud = ctx.editor.user_dict();
+
     match unsafe { str_from_ptr_with_nul(phrase_buf) } {
-        Some(phrase) => ctx
-            .editor
-            .user_dict()
-            .lookup(&syllables, LookupStrategy::Standard)
-            .iter()
-            .any(|ph| ph.as_str() == phrase) as c_int,
+        Some(phrase) => {
+            ud.lookup(&syllables, LookupStrategy::Standard)
+                .iter()
+                .any(|&(w, _)| ud.get_text(w).is_some_and(|x| x == phrase)) as c_int
+        }
         None => ctx
             .editor
             .user_dict()

@@ -26,7 +26,7 @@ if(CURSES_FOUND)
     set(ALL_TESTTOOLS ${ALL_TESTTOOLS} genkeystroke)
 endif()
 
-add_custom_target(static_data ALL DEPENDS dict_chewing misc
+add_custom_target(static_data ALL DEPENDS dict_chewing_v4 misc
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${PROJECT_BINARY_DIR}/data/misc/swkb.dat
         ${PROJECT_BINARY_DIR}/static_data/swkb.dat
@@ -34,11 +34,17 @@ add_custom_target(static_data ALL DEPENDS dict_chewing misc
         ${PROJECT_BINARY_DIR}/data/misc/symbols.dat
         ${PROJECT_BINARY_DIR}/static_data/symbols.dat
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${PROJECT_BINARY_DIR}/data/dict/chewing/tsi.dat
-        ${PROJECT_BINARY_DIR}/static_data/tsi.dat
+        ${PROJECT_BINARY_DIR}/data/dict/chewing_v4/static_words.bin
+        ${PROJECT_BINARY_DIR}/static_data/static_words.bin
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${PROJECT_BINARY_DIR}/data/dict/chewing/word.dat
-        ${PROJECT_BINARY_DIR}/static_data/word.dat
+        ${PROJECT_BINARY_DIR}/data/dict/chewing_v4/static_dict.bin
+        ${PROJECT_BINARY_DIR}/static_data/static_dict.bin
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${PROJECT_BINARY_DIR}/data/dict/chewing_v4/rare_dict.bin
+        ${PROJECT_BINARY_DIR}/static_data/rare_dict.bin
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${PROJECT_BINARY_DIR}/data/dict/chewing_v4/static_lm.bin
+        ${PROJECT_BINARY_DIR}/static_data/static_lm.bin
 )
 set(DATA_BIN_DIR ${PROJECT_BINARY_DIR}/static_data)
 
@@ -74,7 +80,7 @@ foreach(target ${ALL_TESTS})
         TEST_DATA_DIR=\"${TEST_SRC_DIR}/data\"
         TESTDATA=\"${TEST_SRC_DIR}/default-test.txt\"
     )
-    add_dependencies(${target} dict_chewing)
+    add_dependencies(${target} dict_chewing_v4)
     add_dependencies(check ${target})
 endforeach()
 
