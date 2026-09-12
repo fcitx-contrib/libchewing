@@ -80,14 +80,6 @@ impl Interval {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    pub fn sub_intervals(&self) -> impl Iterator<Item = Interval> {
-        self.text.chars().enumerate().map(|(offset, ch)| Interval {
-            start: self.start + offset,
-            end: self.start + offset + 1,
-            is_phrase: self.is_phrase,
-            text: ch.to_string().into_boxed_str(),
-        })
-    }
 }
 
 /// Represents the gap between symbols.
@@ -109,14 +101,14 @@ pub enum Symbol {
     /// Chinese syllable
     Syllable(Syllable),
     /// Any direct character
-    Char(char),
+    Grapheme(char),
 }
 
 impl Debug for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Symbol::Syllable(syl) => f.debug_tuple("S").field(&syl.to_string()).finish(),
-            Symbol::Char(ch) => f.debug_tuple("C").field(&ch).finish(),
+            Symbol::Grapheme(ch) => f.debug_tuple("C").field(&ch).finish(),
         }
     }
 }
@@ -126,18 +118,18 @@ impl Symbol {
         matches!(self, Symbol::Syllable(_))
     }
     pub fn is_char(&self) -> bool {
-        matches!(self, Symbol::Char(_))
+        matches!(self, Symbol::Grapheme(_))
     }
     pub fn to_syllable(self) -> Option<Syllable> {
         match self {
             Symbol::Syllable(syllable) => Some(syllable),
-            Symbol::Char(_) => None,
+            Symbol::Grapheme(_) => None,
         }
     }
     pub fn to_char(self) -> Option<char> {
         match self {
             Symbol::Syllable(_) => None,
-            Symbol::Char(c) => Some(c),
+            Symbol::Grapheme(c) => Some(c),
         }
     }
 }
@@ -150,7 +142,7 @@ impl From<Syllable> for Symbol {
 
 impl From<char> for Symbol {
     fn from(value: char) -> Self {
-        Symbol::Char(value)
+        Symbol::Grapheme(value)
     }
 }
 
