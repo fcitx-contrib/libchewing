@@ -251,7 +251,7 @@ impl PhraseSelector {
             }
         }
         if editor.options.sort_candidates_by_frequency {
-            return editor.decoder.rank(candidates);
+            candidates = editor.decoder.rank(candidates);
         }
         candidates
             .into_iter()

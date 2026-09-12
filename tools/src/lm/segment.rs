@@ -21,7 +21,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
 
     let decoder = Decoder {
         lm,
-        alpha: Decoder::ALPHA,
+        lambda: Decoder::LAMBDA,
     };
 
     let n_threads = thread::available_parallelism()?.get();

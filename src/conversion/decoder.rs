@@ -8,22 +8,47 @@ use crate::{
     model::{Candidate, WordId},
 };
 
+/// Converts word lattice to possible sentence hypotheses.
+///
+/// The current algorithm runs with complexity O(L·E·K) where *L* is
+/// the length of the sentence, *E* is the number of words in the lattice,
+/// *K* is the number of returned results.
 #[derive(Clone, Debug)]
 pub struct Decoder {
+    /// Bigram and unigram language model.
     pub lm: StaticLm,
-    /// Bigram to unigram back-off weight
-    pub alpha: f64,
+    /// Bigram to unigram back-off weight.
+    ///
+    /// [`Decoder::LAMBDA`] can be used as the default.
+    ///
+    /// Valid lambda should be between 0.1 and 0.9. Values outside of that
+    /// range will ruin the decoding accuracy.
+    pub lambda: f64,
 }
 
+/// A possible sentence output.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Hypothesis {
+    /// Candidate word or string in input order.
     pub candidates: Vec<Candidate>,
+    /// Cost calculated from probabilities. Lower is better.
     pub cost: f64,
 }
 
 impl Decoder {
-    pub const ALPHA: f64 = 0.6;
+    /// Default bigram to unigram back-off weight
+    pub const LAMBDA: f64 = 0.6;
 
+    /// Decodes the word lattice and returns the n-best hypotheses.
+    ///
+    /// # Parameters
+    ///
+    /// - `lattice`: a word lattice
+    /// - `n`: decode the n-best hypotheses
+    ///
+    /// # Returns
+    ///
+    /// A list of [`Hypothesis`] sorted from most likely to least likely.
     pub fn decoden(&self, mut lattice: Lattice, n: u8) -> Vec<Hypothesis> {
         if lattice.edges.is_empty() {
             return vec![Hypothesis::default()];
@@ -59,22 +84,18 @@ impl Decoder {
         debug_assert!(!paths.is_empty());
         paths
     }
-    pub fn rank(&self, candidates: Vec<Candidate>) -> Vec<WordId> {
+    /// Rank the candidate list using the decoder's cost function.
+    ///
+    /// # Returns
+    ///
+    /// Candidates sorted from most likely to least likely.
+    pub fn rank(&self, candidates: Vec<Candidate>) -> Vec<Candidate> {
         let mut ranked: Vec<_> = candidates
             .iter()
-            .map(|c| {
-                (
-                    OrderedF64(self.cost_fun(Candidate::None, *c)),
-                    match c {
-                        Candidate::None => WordId(0),
-                        Candidate::Word { wid, .. } => *wid,
-                        Candidate::Grapheme(_) => WordId(0),
-                    },
-                )
-            })
+            .map(|c| (OrderedF64(self.cost_fun(Candidate::None, *c)), c))
             .collect();
-        ranked.sort_unstable_by_key(|&(cost, _)| cost);
-        ranked.into_iter().map(|(_, w)| w).collect()
+        ranked.sort_by_key(|&(cost, _)| cost);
+        ranked.into_iter().map(|(_, w)| *w).collect()
     }
     fn cost_fun(&self, w1: Candidate, w2: Candidate) -> f64 {
         let (wid1, wid2) = match (w1, w2) {
@@ -98,8 +119,8 @@ impl Decoder {
             LOG10_LAMBDA_HIST_UNIGRAM + hist_prob,
         );
         // Linear interpolation unigram and bigram
-        let bigram_weight = self.alpha.log10();
-        let unigram_weight = (1.0 - self.alpha).log10();
+        let bigram_weight = self.lambda.log10();
+        let unigram_weight = (1.0 - self.lambda).log10();
         let mixed = log10_sum_exp(
             bigram_weight + self.lm.bigram(wid1, wid2),
             unigram_weight + p_uni,

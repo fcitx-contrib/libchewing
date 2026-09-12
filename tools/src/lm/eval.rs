@@ -41,7 +41,7 @@ pub(crate) fn eval(search_path: &str, model_bin: &str, alpha: f64, verbose: bool
         dict,
         lookup_strategy: LookupStrategy::Standard,
     };
-    let decoder = Decoder { lm, alpha };
+    let decoder = Decoder { lm, lambda: alpha };
 
     let engine = ChewingEngine {
         word_lattice_builder: lattice_builder,

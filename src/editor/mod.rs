@@ -279,7 +279,7 @@ impl Editor {
 
             let decoder = Decoder {
                 lm,
-                alpha: Decoder::ALPHA,
+                lambda: Decoder::LAMBDA,
             };
 
             let conversion_engine = Box::new(ChewingEngine {
@@ -1827,7 +1827,7 @@ impl EditorBuilder {
 
         let decoder = Decoder {
             lm: self.lm,
-            alpha: Decoder::ALPHA,
+            lambda: Decoder::LAMBDA,
         };
         let conversion_engine = Box::new(ChewingEngine {
             word_lattice_builder,
