@@ -19,7 +19,7 @@ impl ChewingEngine {
     const MAX_OUT: u8 = 10;
 
     pub(crate) fn convert<'a>(&'a self, com: &'a Composition) -> Vec<Outcome> {
-        let lattice = self.word_lattice_builder.to_lattice(com);
+        let lattice = self.word_lattice_builder.build_lattice(com);
         let hypothesis = self.decoder.decoden(lattice, Self::MAX_OUT);
 
         hypothesis

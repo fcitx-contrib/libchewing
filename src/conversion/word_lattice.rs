@@ -1,4 +1,4 @@
-//! Builds word lattice
+//! Word lattice represents many possible intepretations of the phonetic input.
 
 use log::trace;
 
@@ -9,12 +9,7 @@ use crate::{
     zhuyin::{Syllable, SyllableVec},
 };
 
-#[derive(Debug, Clone)]
-pub struct LatticeBuilder {
-    pub dict: CompositeDict,
-    pub lookup_strategy: LookupStrategy,
-}
-
+/// Word lattice contains different word sequences discovered from input.
 #[derive(Debug)]
 pub struct Lattice {
     pub(crate) len: usize,
@@ -23,11 +18,16 @@ pub struct Lattice {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Edge {
-    pub end: u8,
-    pub cand: Candidate,
+    pub(crate) end: u8,
+    pub(crate) cand: Candidate,
 }
 
 impl Lattice {
+    /// Builds a word lattice from any string, instead of phonetic input.
+    ///
+    /// # Parameters
+    ///
+    /// - `find_words`: A closure that maps a sub-string to a [`WordId`]
     pub fn from_str<F>(s: &str, find_words: F) -> Lattice
     where
         F: Fn(&str) -> Option<WordId>,
@@ -67,8 +67,16 @@ impl Lattice {
     }
 }
 
+/// Builds word lattice from a composition.
+#[derive(Debug, Clone)]
+pub struct LatticeBuilder {
+    pub dict: CompositeDict,
+    pub lookup_strategy: LookupStrategy,
+}
+
 impl LatticeBuilder {
-    pub fn to_lattice(&self, com: &Composition) -> Lattice {
+    /// Finds all possible words sequences from a composition then creates a word lattice.
+    pub fn build_lattice(&self, com: &Composition) -> Lattice {
         let len = com.len();
         let mut edges = vec![vec![]; len];
         for start in 0..com.symbols.len() {
