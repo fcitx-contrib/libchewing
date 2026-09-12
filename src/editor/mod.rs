@@ -3,8 +3,7 @@
 use std::{
     any::Any,
     cmp::{max, min},
-    error::Error,
-    fmt::{Debug, Display},
+    fmt::Debug,
     fs::{self, File},
     hash::{DefaultHasher, Hash, Hasher},
     io::{BufReader, BufWriter},
@@ -13,7 +12,7 @@ use std::{
 };
 
 use log::{debug, error, info, warn};
-use scoped_error::{ErrorExt, expect_error, impl_context_error};
+use scoped_error::{ErrorExt, bail, expect_error, impl_context_error};
 
 pub use self::{abbrev::AbbrevTable, selection::symbol::SymbolSelector};
 use self::{
@@ -27,7 +26,6 @@ use crate::{
         SimpleEngine, Symbol, full_width_symbol_input, special_symbol_input,
     },
     dictionary::{CompositeDict, LookupStrategy, StringTable},
-    exn::{Exn, ResultExt},
     input::{KeyState, KeyboardEvent, keysym::*},
     lm::{LoadMode, StaticDict, StaticLm},
     path::SearchPath,
@@ -437,86 +435,94 @@ impl Editor {
         syllables: &[Syllable],
         phrase: &str,
     ) -> Result<(), EditorError> {
-        self.shared
-            .learn_phrase(syllables, phrase)
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))
+        self.shared.learn_phrase(syllables, phrase)
     }
     pub fn unlearn_phrase(
         &mut self,
         syllables: &[Syllable],
         phrase: &str,
     ) -> Result<(), EditorError> {
-        self.shared
-            .unlearn_phrase(syllables, phrase)
-            .or_raise(|| EditorError::new(EditorErrorKind::InvalidState))
+        self.shared.unlearn_phrase(syllables, phrase)
     }
     /// All candidates after current page
     pub fn paginated_candidates(&self) -> Result<Vec<String>, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting
-                .candidates(&self.shared)
-                .into_iter()
-                .skip(selecting.page_no * self.shared.options.candidates_per_page)
-                .collect())
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return paginated candidate list", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting
+                    .candidates(&self.shared)
+                    .into_iter()
+                    .skip(selecting.page_no * self.shared.options.candidates_per_page)
+                    .collect())
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn all_candidates(&self) -> Result<Vec<String>, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.candidates(&self.shared))
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return candidate list", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting.candidates(&self.shared))
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn current_page_no(&self) -> Result<usize, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.page_no)
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return current page number", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting.page_no)
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn total_page(&self) -> Result<usize, EditorError> {
-        let any = self.state.as_ref() as &dyn Any;
-        if let Some(selecting) = any.downcast_ref::<Selecting>() {
-            Ok(selecting.total_page(&self.shared))
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to return total page number", || {
+            let any = self.state.as_ref() as &dyn Any;
+            if let Some(selecting) = any.downcast_ref::<Selecting>() {
+                Ok(selecting.total_page(&self.shared))
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn select(&mut self, n: usize) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        let selecting = match any.downcast_mut::<Selecting>() {
-            Some(selecting) => selecting,
-            None => return Err(EditorError::new(EditorErrorKind::InvalidState)),
-        };
-        match selecting.select(&mut self.shared, n) {
-            Transition::ToState(to_state) => {
-                self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
-                self.state = to_state;
+        expect_error("Unable to select candidate", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            let selecting = match any.downcast_mut::<Selecting>() {
+                Some(selecting) => selecting,
+                None => bail!("Editor is not in selecting state"),
+            };
+            match selecting.select(&mut self.shared, n) {
+                Transition::ToState(to_state) => {
+                    self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
+                    self.state = to_state;
+                }
+                Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
             }
-            Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
-        }
-        if self.shared.last_key_behavior == EditorKeyBehavior::Absorb {
-            self.shared.try_auto_commit();
-        }
-        if self.shared.last_key_behavior == EditorKeyBehavior::Bell {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        } else {
-            Ok(())
-        }
+            if self.shared.last_key_behavior == EditorKeyBehavior::Absorb {
+                self.shared.try_auto_commit();
+            }
+            if self.shared.last_key_behavior == EditorKeyBehavior::Bell {
+                bail!("Editor is not in selecting state");
+            } else {
+                Ok(())
+            }
+        })
     }
     pub fn cancel_selecting(&mut self) -> Result<(), EditorError> {
-        if self.is_selecting() {
-            self.shared.cancel_selecting();
-            self.state = Box::new(Entering);
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        expect_error("Unable to cancel select candidate", || {
+            if self.is_selecting() {
+                self.shared.cancel_selecting();
+                self.state = Box::new(Entering);
+                Ok(())
+            } else {
+                bail!("Editor is not in selecting state");
+            }
+        })
     }
     pub fn cancel_entering_syllable(&mut self) {
         self.shared.syl.clear();
@@ -558,11 +564,13 @@ impl Editor {
         &self.shared.commit_buffer
     }
     pub fn commit(&mut self) -> Result<(), EditorError> {
-        if self.shared.com.is_empty() {
-            return Err(EditorError::new(EditorErrorKind::InvalidState));
-        }
-        self.shared.commit();
-        Ok(())
+        expect_error("Unable to commit input", || {
+            if self.shared.com.is_empty() {
+                bail!("Commit buffer is empty");
+            }
+            self.shared.commit();
+            Ok(())
+        })
     }
     pub fn has_next_selection_point(&self) -> bool {
         let any = self.state.as_ref() as &dyn Any;
@@ -589,77 +597,87 @@ impl Editor {
         }
     }
     pub fn jump_to_next_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => s.jump_to_next_selection_point(&self.shared.dict),
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => Ok(s.jump_to_next_selection_point(&self.shared.dict)?),
+                    _ => bail!("Editor is not in selecting state"),
+                }
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn jump_to_prev_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => s.jump_to_prev_selection_point(&self.shared.dict),
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => Ok(s.jump_to_prev_selection_point(&self.shared.dict)?),
+                    _ => bail!("Editor is not in selecting state"),
+                }
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn jump_to_first_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => {
-                    s.jump_to_first_selection_point(&self.shared.dict);
-                    Ok(())
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => {
+                        s.jump_to_first_selection_point(&self.shared.dict);
+                        Ok(())
+                    }
+                    _ => bail!("Editor is not in selecting state"),
                 }
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn jump_to_last_selection_point(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        if let Some(s) = any.downcast_mut::<Selecting>() {
-            match &mut s.sel {
-                Selector::Phrase(s) => {
-                    s.jump_to_last_selection_point(&self.shared.dict);
-                    Ok(())
+        expect_error("Unable to set selection poiont", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            if let Some(s) = any.downcast_mut::<Selecting>() {
+                match &mut s.sel {
+                    Selector::Phrase(s) => {
+                        s.jump_to_last_selection_point(&self.shared.dict);
+                        Ok(())
+                    }
+                    _ => bail!("Editor is not in selecting state"),
                 }
-                _ => Err(EditorError::new(EditorErrorKind::InvalidState)),
+            } else {
+                bail!("Editor is not in selecting state");
             }
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+        })
     }
     pub fn start_selecting(&mut self) -> Result<(), EditorError> {
-        let any = self.state.as_mut() as &mut dyn Any;
-        let transition = if let Some(s) = any.downcast_mut::<Entering>() {
-            s.start_selecting(&mut self.shared)
-        } else if let Some(s) = any.downcast_mut::<EnteringSyllable>() {
-            // Force entering selection
-            s.start_selecting(&mut self.shared)
-        } else {
-            Transition::Spin(EditorKeyBehavior::Bell)
-        };
-        match transition {
-            Transition::ToState(to_state) => {
-                self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
-                self.state = to_state;
+        expect_error("Unable to start selecting", || {
+            let any = self.state.as_mut() as &mut dyn Any;
+            let transition = if let Some(s) = any.downcast_mut::<Entering>() {
+                s.start_selecting(&mut self.shared)
+            } else if let Some(s) = any.downcast_mut::<EnteringSyllable>() {
+                // Force entering selection
+                s.start_selecting(&mut self.shared)
+            } else {
+                Transition::Spin(EditorKeyBehavior::Bell)
+            };
+            match transition {
+                Transition::ToState(to_state) => {
+                    self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
+                    self.state = to_state;
+                }
+                Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
             }
-            Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
-        }
-        if self.is_selecting() {
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::InvalidState))
-        }
+            if self.is_selecting() {
+                Ok(())
+            } else {
+                bail!("Current Editor state cannot transit to selecting");
+            }
+        })
     }
     pub fn notification(&self) -> &str {
         &self.shared.notice_buffer
@@ -772,17 +790,19 @@ impl SharedState {
         start: usize,
         end: usize,
     ) -> Result<(), EditorError> {
-        let result = self.learn_phrase_in_range_quiet(start, end);
-        match &result {
-            Ok(phrase) => {
-                self.notice_buffer = format!("加入：{phrase}");
-                Ok(())
+        expect_error("Unable to learn phrase", || {
+            let result = self.learn_phrase_in_range_quiet(start, end);
+            match &result {
+                Ok(phrase) => {
+                    self.notice_buffer = format!("加入：{phrase}");
+                    Ok(())
+                }
+                Err(msg) => {
+                    msg.clone_into(&mut self.notice_buffer);
+                    bail!("{}", msg)
+                }
             }
-            Err(msg) => {
-                msg.clone_into(&mut self.notice_buffer);
-                Err(EditorError::new(EditorErrorKind::InvalidState))
-            }
-        }
+        })
     }
     // FIXME enhance user visible reporting
     fn learn_phrase_in_range_quiet(&mut self, start: usize, end: usize) -> Result<String, String> {
@@ -824,25 +844,33 @@ impl SharedState {
         result.map(|_| phrase)
     }
     fn learn_phrase(&mut self, syllables: &[Syllable], phrase: &str) -> Result<(), EditorError> {
-        if syllables.len() != phrase.chars().count() {
-            warn!(
-                "syllables({:?})[{}] and phrase({})[{}] has different length",
-                &syllables,
-                syllables.len(),
-                &phrase,
-                phrase.chars().count()
-            );
-            return Err(EditorError::new(EditorErrorKind::InvalidState));
-        }
-        let wid = self.string_table.intern(phrase);
-        let phrases = self.user_dict.lookup(syllables, LookupStrategy::Standard);
-        if !phrases.iter().any(|p| p.0 == wid) {
-            self.user_dict.insert(syllables, phrase);
-            return Ok(());
-        }
-        self.hist_dict.observe(syllables, phrase);
-        self.dirty_level += 1;
-        Ok(())
+        expect_error("Failed to learn phrase", || {
+            if syllables.len() != phrase.chars().count() {
+                warn!(
+                    "syllables({:?})[{}] and phrase({})[{}] has different length",
+                    &syllables,
+                    syllables.len(),
+                    &phrase,
+                    phrase.chars().count()
+                );
+                bail!(
+                    "syllables({:?})[{}] and phrase({})[{}] has different length",
+                    &syllables,
+                    syllables.len(),
+                    &phrase,
+                    phrase.chars().count()
+                );
+            }
+            let wid = self.string_table.intern(phrase);
+            let phrases = self.user_dict.lookup(syllables, LookupStrategy::Standard);
+            if !phrases.iter().any(|p| p.0 == wid) {
+                self.user_dict.insert(syllables, phrase);
+                return Ok(());
+            }
+            self.hist_dict.observe(syllables, phrase);
+            self.dirty_level += 1;
+            Ok(())
+        })
     }
     fn unlearn_phrase(&mut self, syllables: &[Syllable], phrase: &str) -> Result<(), EditorError> {
         self.user_dict.remove(syllables, phrase);
@@ -1849,36 +1877,7 @@ impl EditorBuilder {
     }
 }
 
-/// All different errors that may happen when changing editor state.
-#[derive(Debug)]
-pub enum EditorErrorKind {
-    /// Requested invalid state change.
-    InvalidState,
-    /// Requested invalid input.
-    InvalidInput,
-    /// Requested state change was not possible.
-    Impossible,
-}
-
-#[derive(Debug)]
-pub struct EditorError {
-    kind: EditorErrorKind,
-    source: Option<Box<dyn Error + Send + Sync + 'static>>,
-}
-
-impl EditorError {
-    fn new(kind: EditorErrorKind) -> EditorError {
-        EditorError { kind, source: None }
-    }
-}
-
-impl Display for EditorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Editor cannot perform requested action: {:?}", self.kind)
-    }
-}
-
-impl_exn!(EditorError);
+impl_context_error!(pub EditorError);
 impl_context_error!(pub NewEditorError);
 
 #[cfg(test)]

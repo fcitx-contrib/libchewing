@@ -1,9 +1,11 @@
 use std::cmp::min;
 
+use scoped_error::{bail, expect_error};
+
 use crate::{
     conversion::{Composition, Gap},
     dictionary::{CompositeDict, LookupStrategy},
-    editor::{ConversionEngineKind, EditorError, EditorErrorKind, SharedState},
+    editor::{ConversionEngineKind, EditorError, SharedState},
     model::WordId,
     zhuyin::Syllable,
 };
@@ -145,25 +147,29 @@ impl PhraseSelector {
         &mut self,
         dict: &CompositeDict,
     ) -> Result<(), EditorError> {
-        if let Some((begin, end)) = self.next_selection_point(dict) {
-            self.begin = begin;
-            self.end = end;
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::Impossible))
-        }
+        expect_error("Unable to jump to next selection point", || {
+            if let Some((begin, end)) = self.next_selection_point(dict) {
+                self.begin = begin;
+                self.end = end;
+                Ok(())
+            } else {
+                bail!("No next selection point")
+            }
+        })
     }
     pub(crate) fn jump_to_prev_selection_point(
         &mut self,
         dict: &CompositeDict,
     ) -> Result<(), EditorError> {
-        if let Some((begin, end)) = self.prev_selection_point(dict) {
-            self.begin = begin;
-            self.end = end;
-            Ok(())
-        } else {
-            Err(EditorError::new(EditorErrorKind::Impossible))
-        }
+        expect_error("Unable to jump to previous selection point", || {
+            if let Some((begin, end)) = self.prev_selection_point(dict) {
+                self.begin = begin;
+                self.end = end;
+                Ok(())
+            } else {
+                bail!("No previous selection point")
+            }
+        })
     }
     pub(crate) fn jump_to_first_selection_point(&mut self, dict: &CompositeDict) {
         self.init(self.orig, dict);

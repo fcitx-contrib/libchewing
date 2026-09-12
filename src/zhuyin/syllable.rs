@@ -9,8 +9,9 @@ use std::{
     str::FromStr,
 };
 
+use scoped_error::{expect_error, impl_context_error};
+
 use super::{Bopomofo, BopomofoKind};
-use crate::exn::{Exn, ResultExt};
 
 #[derive(Default, Clone, Copy)]
 pub struct SyllableVec {
@@ -112,22 +113,21 @@ impl FromStr for SyllableVec {
     type Err = ParseSyllableError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut res = SyllableVec::new();
-        let mut builder = SyllableBuilder::new();
-        for ch in s.chars() {
-            if ch.is_whitespace() || ch == '-' {
-                res.push(builder.build());
-                builder = SyllableBuilder::new();
-                continue;
+        expect_error("Failed to parse bopomofo to syllables from string", || {
+            let mut res = SyllableVec::new();
+            let mut builder = SyllableBuilder::new();
+            for ch in s.chars() {
+                if ch.is_whitespace() || ch == '-' {
+                    res.push(builder.build());
+                    builder = SyllableBuilder::new();
+                    continue;
+                }
+                let bopomofo: Bopomofo = Bopomofo::try_from(ch)?;
+                builder = builder.insert(bopomofo)?;
             }
-            let bopomofo: Bopomofo =
-                Bopomofo::try_from(ch).or_raise(|| ParseSyllableError::new())?;
-            builder = builder
-                .insert(bopomofo)
-                .or_raise(|| ParseSyllableError::new())?;
-        }
-        res.push(builder.build());
-        Ok(res)
+            res.push(builder.build());
+            Ok(res)
+        })
     }
 }
 
@@ -354,8 +354,10 @@ impl TryFrom<u16> for Syllable {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         // TODO check invalid value
-        Ok(Syllable {
-            value: NonZeroU16::try_from(value).or_raise(|| DecodeSyllableError::new())?,
+        expect_error("Failed to decode a Syllable from u16", || {
+            Ok(Syllable {
+                value: NonZeroU16::try_from(value)?,
+            })
         })
     }
 }
@@ -364,13 +366,14 @@ impl FromStr for Syllable {
     type Err = ParseSyllableError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let error = || ParseSyllableError::new();
-        let mut builder = Syllable::builder();
-        for c in s.chars() {
-            let bopomofo = Bopomofo::try_from(c).or_raise(error)?;
-            builder = builder.insert(bopomofo).or_raise(error)?;
-        }
-        Ok(builder.build())
+        expect_error("Failed to parse bopomofo to syllables from string", || {
+            let mut builder = Syllable::builder();
+            for c in s.chars() {
+                let bopomofo = Bopomofo::try_from(c)?;
+                builder = builder.insert(bopomofo)?;
+            }
+            Ok(builder.build())
+        })
     }
 }
 
@@ -477,25 +480,7 @@ impl SyllableBuilder {
     }
 }
 
-/// Errors during decoding a syllable from a u16.
-#[derive(Debug)]
-pub struct DecodeSyllableError {
-    source: Option<Box<dyn Error + Send + Sync + 'static>>,
-}
-
-impl DecodeSyllableError {
-    fn new() -> DecodeSyllableError {
-        DecodeSyllableError { source: None }
-    }
-}
-
-impl Display for DecodeSyllableError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "syllable decode error")
-    }
-}
-
-impl_exn!(DecodeSyllableError);
+impl_context_error!(pub DecodeSyllableError);
 
 /// Errors when parsing a str to a syllable.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -554,25 +539,7 @@ impl Display for BuildSyllableError {
 
 impl Error for BuildSyllableError {}
 
-/// Errors when parsing a str to a syllable.
-#[derive(Debug)]
-pub struct ParseSyllableError {
-    source: Option<Box<dyn Error + Send + Sync + 'static>>,
-}
-
-impl ParseSyllableError {
-    fn new() -> ParseSyllableError {
-        ParseSyllableError { source: None }
-    }
-}
-
-impl Display for ParseSyllableError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Syllable parse error")
-    }
-}
-
-impl_exn!(ParseSyllableError);
+impl_context_error!(pub ParseSyllableError);
 
 /// Builds a syllable from bopomofos.
 ///
