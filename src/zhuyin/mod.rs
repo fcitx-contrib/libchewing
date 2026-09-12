@@ -6,8 +6,7 @@ pub use self::syllable::{
     SyllableErrorKind,
 };
 
-pub(crate) use self::syllable::SyllableVec;
-pub(crate) use self::syllable::parse_syllable_vec;
+pub use self::syllable::SyllableVec;
 
 mod bopomofo;
 mod syllable;

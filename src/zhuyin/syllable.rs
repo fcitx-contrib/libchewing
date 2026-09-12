@@ -13,19 +13,19 @@ use super::{Bopomofo, BopomofoKind};
 use crate::exn::{Exn, ResultExt};
 
 #[derive(Default, Clone, Copy)]
-pub(crate) struct SyllableVec {
+pub struct SyllableVec {
     buf: [Syllable; Self::MAX_LEN],
     len: u8,
 }
 
 impl SyllableVec {
-    pub(crate) const MAX_LEN: usize = 11;
+    pub const MAX_LEN: usize = 11;
 
-    pub(crate) fn new() -> SyllableVec {
+    pub fn new() -> SyllableVec {
         Self::default()
     }
 
-    pub(crate) fn push(&mut self, value: Syllable) {
+    pub fn push(&mut self, value: Syllable) {
         if self.len == Self::MAX_LEN as u8 {
             panic!("SyllableVec can only store up to 10 syllables");
         }
@@ -108,22 +108,27 @@ where
     }
 }
 
-pub(crate) fn parse_syllable_vec(input: &str) -> Result<SyllableVec, ParseSyllableError> {
-    let mut res = SyllableVec::new();
-    let mut builder = SyllableBuilder::new();
-    for ch in input.chars() {
-        if ch.is_whitespace() || ch == '-' {
-            res.push(builder.build());
-            builder = SyllableBuilder::new();
-            continue;
+impl FromStr for SyllableVec {
+    type Err = ParseSyllableError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut res = SyllableVec::new();
+        let mut builder = SyllableBuilder::new();
+        for ch in s.chars() {
+            if ch.is_whitespace() || ch == '-' {
+                res.push(builder.build());
+                builder = SyllableBuilder::new();
+                continue;
+            }
+            let bopomofo: Bopomofo =
+                Bopomofo::try_from(ch).or_raise(|| ParseSyllableError::new())?;
+            builder = builder
+                .insert(bopomofo)
+                .or_raise(|| ParseSyllableError::new())?;
         }
-        let bopomofo: Bopomofo = Bopomofo::try_from(ch).or_raise(|| ParseSyllableError::new())?;
-        builder = builder
-            .insert(bopomofo)
-            .or_raise(|| ParseSyllableError::new())?;
+        res.push(builder.build());
+        Ok(res)
     }
-    res.push(builder.build());
-    Ok(res)
 }
 
 /// The consonants and vowels that are taken together to make a single sound.

@@ -51,7 +51,7 @@ pub fn migrate_v3_to_v4(base_path: &Path) -> Result<(), MigrateV4Error> {
                 "{},{},{}",
                 phrase,
                 display_syllables(&syllables),
-                scale_freq(phrase.freq())
+                scale_freq(phrase.freq)
             )?;
         }
 

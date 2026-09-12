@@ -14,9 +14,9 @@ use std::{
 use scoped_error::{expect_error, impl_context_error};
 
 use crate::{
-    dictionary::{LookupStrategy, Phrase, StringTable},
+    dictionary::{LookupStrategy, StringTable},
     model::WordId,
-    zhuyin::{Syllable, SyllableVec, parse_syllable_vec},
+    zhuyin::{Syllable, SyllableVec},
 };
 
 /// User provided dictionary
@@ -96,7 +96,7 @@ impl UserDict {
                     .next()
                     .map(|b| i8::from_str(b).unwrap_or(0).clamp(Self::MIN, Self::MAX))
                     .unwrap_or(0);
-                let syllables: SyllableVec = parse_syllable_vec(bopomofo.trim())?;
+                let syllables: SyllableVec = bopomofo.trim().parse()?;
 
                 let wid = string_table.intern(word);
 
@@ -215,20 +215,16 @@ impl UserDict {
             }
         }
     }
-    pub fn entries(&self) -> Box<dyn Iterator<Item = (Vec<Syllable>, Phrase)> + '_> {
+    pub fn entries(&self) -> impl Iterator<Item = (SyllableVec, String)> + '_ {
         let lock = self
             .inner
             .read()
             .expect("Unable to acquire UserDict reader lock");
-        Box::new(lock.records.clone().into_iter().flat_map(move |(k, v)| {
+        lock.records.clone().into_iter().flat_map(move |(k, v)| {
             let st = lock.string_table.clone();
-            v.into_iter().map(move |ent| {
-                (
-                    k.to_vec(),
-                    Phrase::new(st.get_text(ent.wid).unwrap(), ent.boost as i32),
-                )
-            })
-        }))
+            v.into_iter()
+                .map(move |ent| (k, st.get_text(ent.wid).unwrap()))
+        })
     }
 }
 

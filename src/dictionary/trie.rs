@@ -551,7 +551,7 @@ impl EncodeValue for Phrase {
     }
 
     fn encode_value(&self, encoder: &mut impl Writer) -> der::Result<()> {
-        Utf8StringRef::new(self.as_ref())?.encode(encoder)?;
+        Utf8StringRef::new(self.as_str())?.encode(encoder)?;
         self.freq.encode(encoder)?;
         context_specific_opt(0, TagMode::Implicit, &self.last_used).encode(encoder)?;
         Ok(())

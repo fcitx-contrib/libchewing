@@ -1256,7 +1256,9 @@ pub unsafe extern "C" fn chewing_userphrase_enumerate(ctx: *mut ChewingContext) 
     let ctx = as_mut_or_return!(ctx, ERROR);
     let _logger_guard = init_scoped_logging(ctx.logger_fn, ctx.logger_data);
 
-    ctx.userphrase_iter = Some(ctx.editor.user_dict().entries().peekable());
+    ctx.userphrase_iter = Some(
+        (Box::new(ctx.editor.user_dict().entries()) as Box<dyn Iterator<Item = _>>).peekable(),
+    );
     OK
 }
 

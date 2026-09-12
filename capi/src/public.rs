@@ -6,9 +6,9 @@ use std::{
 
 use chewing::{
     conversion::Interval,
-    dictionary::Entries,
     editor::{Editor, zhuyin_layout::KeyboardLayoutCompat},
     input::keymap::Keymap,
+    zhuyin::SyllableVec,
 };
 
 use crate::logger::ExternLoggerFn;
@@ -136,7 +136,7 @@ pub struct ChewingContext {
     pub(crate) kbcompat_iter: Option<Peekable<Box<dyn Iterator<Item = KeyboardLayoutCompat>>>>,
     pub(crate) cand_iter: Option<Peekable<Box<dyn Iterator<Item = String>>>>,
     pub(crate) interval_iter: Option<Peekable<Box<dyn Iterator<Item = Interval>>>>,
-    pub(crate) userphrase_iter: Option<Peekable<Entries<'static>>>,
+    pub(crate) userphrase_iter: Option<Peekable<Box<dyn Iterator<Item = (SyllableVec, String)>>>>,
     pub(crate) sel_keys: SelKeys,
     pub(crate) commit_buf: [u8; 256],
     pub(crate) preedit_buf: [u8; 256],
