@@ -31,7 +31,7 @@ use crate::{
     input::{KeyState, KeyboardEvent, keysym::*},
     lm::{LoadMode, StaticDict, StaticLm},
     path::SearchPath,
-    user::{HistoryDict, UserDict, migrate_v3_to_v4, should_migrate_v3},
+    user::{HistoryDict, UserDict, migrate_v3_to_v4, should_migrate_from_v3},
     zhuyin::{Syllable, SyllableVec},
 };
 
@@ -216,7 +216,7 @@ impl Editor {
             )?;
 
             if let Some(up) = sp.user_datadir() {
-                if should_migrate_v3(up) {
+                if should_migrate_from_v3(up) {
                     migrate_v3_to_v4(up)?;
                 }
             }

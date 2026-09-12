@@ -1,3 +1,5 @@
+//! Language model and dictionary modules.
+
 pub(crate) mod static_dict;
 pub(crate) mod static_lm;
 

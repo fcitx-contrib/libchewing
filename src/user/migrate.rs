@@ -13,13 +13,15 @@ use scoped_error::{expect_error, impl_context_error};
 
 use crate::{dictionary::Trie, zhuyin::Syllable};
 
-pub fn should_migrate_v3(base_path: &Path) -> bool {
+/// Detects whether v4 migration is needed.
+pub fn should_migrate_from_v3(base_path: &Path) -> bool {
     let chewing_dat_path = base_path.join("chewing.dat");
     let v4_path = base_path.join("v4");
 
     chewing_dat_path.exists() && !v4_path.exists()
 }
 
+/// Migrates v3 user dictionary format to v4 format.
 pub fn migrate_v3_to_v4(base_path: &Path) -> Result<(), MigrateV4Error> {
     expect_error("Unable to migrate v3 user data to v4 format", || {
         let v4_path = base_path.join("v4");

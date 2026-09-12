@@ -58,21 +58,6 @@
 //! document for the search order.
 //!
 //! `chewing-cli` can be used to compile the dictionary files.
-//!
-//! ```sh
-//! cargo install chewing-cli
-//! cd data
-//! chewing-cli init-database -t trie tsi.src tsi.dat
-//! chewing-cli init-database -t trie word.src word.dat
-//! ```
-//!
-//! After the `tsi.dat` and `word.dat` files are generated, copy them to
-//! `/usr/share/libchewing` or corresponding path on other platforms. They can
-//! also be placed at user's home directory `$HOME/.config/chewing` which has
-//! higher priority than the system path.
-//!
-//! Other required files `swkb.dat` and `symbols.dat` can be copied directly to
-//! the dictionary folder.
 
 #[macro_use]
 mod exn;

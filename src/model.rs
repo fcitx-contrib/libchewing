@@ -1,4 +1,4 @@
-//! Common models shared by all components
+//! Common types shared by all components
 
 use std::{fmt::Display, ops::Deref};
 
