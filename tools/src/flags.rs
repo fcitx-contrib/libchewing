@@ -60,7 +60,7 @@ pub(crate) enum Lm {
     /// Learn unigram and bigram language model and output ARPA file
     Learn(LmLearn),
     /// Prepare data for evaluation
-    PrepareEval(LmPrepareEval),
+    Prepare(LmPrepare),
     /// Evaluate the conversion accuracy of a model
     Eval(LmEval),
 }
@@ -98,7 +98,7 @@ pub(crate) struct LmLearn {
 }
 
 #[derive(Args)]
-pub(crate) struct LmPrepareEval {
+pub(crate) struct LmPrepare {
     /// Path to the dictionary source file (tsi.csv)
     pub(crate) tsi_csv: PathBuf,
     /// Path to the rare word source file (rare.csv)

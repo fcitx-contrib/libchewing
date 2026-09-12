@@ -37,8 +37,8 @@ fn main() -> Result<()> {
             }
         },
         flags::ChewingCliCmd::Lm(sub) => match sub {
-            flags::Lm::PrepareEval(args) => {
-                lm::prepare_eval(&args.tsi_csv, &args.rare_csv)?;
+            flags::Lm::Prepare(args) => {
+                lm::prepare(&args.tsi_csv, &args.rare_csv)?;
             }
             flags::Lm::Eval(args) => {
                 lm::eval(&args.search_path, &args.model_bin, args.alpha, args.verbose)?;

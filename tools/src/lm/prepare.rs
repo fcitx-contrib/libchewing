@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-pub(crate) fn prepare_eval(tsi_csv: &Path, rare_csv: &Path) -> Result<()> {
+pub(crate) fn prepare(tsi_csv: &Path, rare_csv: &Path) -> Result<()> {
     let mut rare_map = HashMap::new();
     let mut bopomofo_map = HashMap::new();
 
