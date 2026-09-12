@@ -34,7 +34,8 @@ pub enum LoadMode {
     Eager,
 
     /// Keep the raw LEB128 varint blob and decode per-row on `get()`.
-    /// Minimal memory footprint, but slower per lookup.
+    /// Minimal memory footprint, but slower per lookup. Usually fast enough
+    /// for interactive use.
     Lazy,
 }
 
@@ -65,7 +66,7 @@ fn decode_varint(data: &[u8], offset: usize) -> (u32, usize) {
     (result, pos - offset)
 }
 
-// TODO: always use direct array for unigram so Lazy mode is fast.
+/// Static bigram and unigram model stored in a compact CSR format.
 #[derive(Clone, Debug)]
 pub struct StaticLm {
     inner: Arc<StaticLmInner>,
@@ -290,7 +291,6 @@ impl StaticLm {
 ///
 /// Uses `row_byte_offsets` to detect row boundaries (where the delta
 /// accumulator resets) and `row_index` to know how many entries each row has.
-#[allow(unsafe_code)]
 fn decode_all_columns(
     row_index: &[u32],
     row_byte_offsets: &[u32],
@@ -323,6 +323,7 @@ fn decode_all_columns(
     result
 }
 
+/// Builds collected unigrams and bigrams to a compact CSR format.
 #[derive(Debug)]
 pub struct StaticLmCompiler {
     unigrams: Vec<f64>,
@@ -477,13 +478,13 @@ impl StaticLmCompiler {
 const MIN_LOGLOG: f64 = -0.3;
 const MAX_LOGLOG: f64 = 1.3;
 
-pub(crate) fn quantize_log_prob(log10prob: f64) -> u8 {
+fn quantize_log_prob(log10prob: f64) -> u8 {
     let loglog = log10prob.neg().log10().clamp(MIN_LOGLOG, MAX_LOGLOG);
     let quantized = ((loglog - MIN_LOGLOG) / (MAX_LOGLOG - MIN_LOGLOG) * 255.0) as u8;
     quantized
 }
 
-pub(crate) fn unquantize_log_prob(quantum: u8) -> f64 {
+fn unquantize_log_prob(quantum: u8) -> f64 {
     let loglog = (quantum as f64) / 255.0 * (MAX_LOGLOG - MIN_LOGLOG) + MIN_LOGLOG;
     10.0_f64.powf(loglog).neg()
 }
