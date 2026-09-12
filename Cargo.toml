@@ -25,14 +25,14 @@ resolver = "3"
 members = ["capi", "fuzzer", "tests/testhelper", "tools"]
 
 [workspace.package]
-version = "0.13.1"
+version = "0.14.0-alpha.1"
 edition = "2024"
 rust-version = "1.95.0"
 license = "LGPL-2.1-or-later"
 
 [workspace.dependencies]
-chewing = { path = ".", version = "0.13.0" }
-chewing_capi = { path = "./capi", version = "0.13.0" }
+chewing = { path = ".", version = "0.14.0-alpha.1" }
+chewing_capi = { path = "./capi", version = "0.14.0-alpha.1" }
 env_logger = { version = "0.11.0", default-features = false, features = ["auto-color"] }
 log = "0.4.0"
 tempfile = "3.10.1"

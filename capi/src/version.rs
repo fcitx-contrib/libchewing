@@ -1,8 +1,8 @@
 use std::ffi::{c_char, c_int};
 
 pub const CHEWING_VERSION_MAJOR: c_int = 0;
-pub const CHEWING_VERSION_MINOR: c_int = 13;
-pub const CHEWING_VERSION_PATCH: c_int = 1;
+pub const CHEWING_VERSION_MINOR: c_int = 14;
+pub const CHEWING_VERSION_PATCH: c_int = 0;
 
 macro_rules! env_c_ptr {
     ($name:expr) => {{
