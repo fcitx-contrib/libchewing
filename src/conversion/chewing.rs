@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use bstr::ByteSlice;
+use log::{Level, debug, log_enabled};
 
 use super::{Composition, ConversionEngine, Gap, Interval, Outcome};
 use crate::{
@@ -57,6 +58,11 @@ impl ChewingEngine {
                     })
                     .fold(vec![], |acc, interval| glue_fn(com, acc, interval));
                 Outcome { intervals, cost }
+            })
+            .inspect(|out| {
+                if log_enabled!(Level::Debug) {
+                    debug!("Cost {:>5.2} {:?}", out.cost, out.intervals);
+                }
             })
             .collect()
     }

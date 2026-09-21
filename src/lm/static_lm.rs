@@ -207,7 +207,7 @@ impl StaticLm {
         }
     }
 
-    const USER_FLOOR: f64 = -2.0;
+    const USER_FLOOR: f64 = -10.0;
     const UNIGRAM_FLOOR: f64 = -20.0;
 
     pub fn unigram(&self, wid: WordId) -> f64 {

@@ -1059,10 +1059,10 @@ void test_Tab_at_the_end()
     ok_preedit_buffer(ctx, "測試一下");
 
     type_keystroke_by_string(ctx, "<T>");
-    ok_preedit_buffer(ctx, "測試儀下");
+    ok_preedit_buffer(ctx, "測試一下");
 
     type_keystroke_by_string(ctx, "<T><T>");
-    ok_preedit_buffer(ctx, "測試一夏");
+    ok_preedit_buffer(ctx, "側試一下");
 
     chewing_delete(ctx);
 }

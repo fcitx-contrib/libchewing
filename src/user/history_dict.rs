@@ -43,7 +43,7 @@ struct HistoryDictEntry {
 
 impl HistoryDict {
     pub const HALF_LIFE: u32 = 50_000;
-    pub const COLD_THRESHOLD: f64 = 2000.0;
+    pub const COLD_THRESHOLD: f64 = 500_000.0;
 
     /// Returns an empty HistoryDict
     pub fn new(string_table: StringTable) -> HistoryDict {
@@ -260,3 +260,56 @@ fn true_count(h: u32, g: u64, c_i: u32, b_i: u64) -> u32 {
 }
 
 impl_context_error!(pub HistoryDictError);
+
+#[cfg(test)]
+mod tests {
+    use crate::{syl, zhuyin::Bopomofo};
+
+    use super::*;
+
+    #[test]
+    fn learning_curve() {
+        let st = StringTable::new();
+        let hist = HistoryDict::new(st);
+        let test = &[
+            syl![Bopomofo::C, Bopomofo::TONE4],
+            syl![Bopomofo::SH, Bopomofo::TONE4],
+        ];
+
+        assert_eq!(hist.lookup(test, LookupStrategy::Standard), vec![]);
+
+        hist.observe(test, "測試");
+        let log10prob = hist.lookup(test, LookupStrategy::Standard)[0].1;
+        assert!(
+            (log10prob - -5.69).abs() < 1e-2,
+            "log10prob = {}",
+            log10prob
+        );
+
+        hist.observe(test, "測試");
+        let log10prob = hist.lookup(test, LookupStrategy::Standard)[0].1;
+        assert!(
+            (log10prob - -5.39).abs() < 1e-2,
+            "log10prob = {}",
+            log10prob
+        );
+
+        hist.observe(test, "測試");
+        let log10prob = hist.lookup(test, LookupStrategy::Standard)[0].1;
+        assert!(
+            (log10prob - -5.22).abs() < 1e-2,
+            "log10prob = {}",
+            log10prob
+        );
+
+        for _ in 0..1000 {
+            hist.observe(test, "測試");
+        }
+        let log10prob = hist.lookup(test, LookupStrategy::Standard)[0].1;
+        assert!(
+            (log10prob - -2.70).abs() < 1e-2,
+            "log10prob = {}",
+            log10prob
+        );
+    }
+}
