@@ -65,8 +65,8 @@ impl Decoder {
                 .map(|e| {
                     (
                         e.end,
-                        OrderedF64(self.cost_fun(Candidate::None, e.cand)),
-                        *e,
+                        OrderedF64(self.cost_fun(&Candidate::None, &e.cand)),
+                        e.clone(),
                     )
                 })
                 .collect();
@@ -75,7 +75,7 @@ impl Decoder {
 
             es.clear();
             for group in ranked.chunk_by(|a, b| a.0 == b.0) {
-                es.extend(group.iter().take(KEEP_PER_SPAN).map(|&(_, _, e)| e));
+                es.extend(group.iter().take(KEEP_PER_SPAN).map(|(_, _, e)| e.clone()));
             }
         }
 
@@ -92,16 +92,16 @@ impl Decoder {
     pub fn rank(&self, candidates: Vec<Candidate>) -> Vec<Candidate> {
         let mut ranked: Vec<_> = candidates
             .iter()
-            .map(|c| (OrderedF64(self.cost_fun(Candidate::None, *c)), c))
+            .map(|c| (OrderedF64(self.cost_fun(&Candidate::None, c)), c))
             .collect();
         ranked.sort_by_key(|&(cost, _)| cost);
-        ranked.into_iter().map(|(_, w)| *w).collect()
+        ranked.into_iter().map(|(_, w)| w.clone()).collect()
     }
-    fn cost_fun(&self, w1: Candidate, w2: Candidate) -> f64 {
+    fn cost_fun(&self, w1: &Candidate, w2: &Candidate) -> f64 {
         let (wid1, wid2) = match (w1, w2) {
-            (Candidate::Word { wid: a, .. }, Candidate::Word { wid: b, .. }) => (a, b),
+            (Candidate::Word { wid: a, .. }, Candidate::Word { wid: b, .. }) => (*a, *b),
             (Candidate::Word { wid: b, .. }, _) | (_, Candidate::Word { wid: b, .. }) => {
-                (WordId(0), b)
+                (WordId(0), *b)
             }
             _ => return ERROR_FLOOR.neg(),
         };
@@ -110,7 +110,7 @@ impl Decoder {
                 wid: _,
                 hist_prob,
                 user_pref,
-            } => (hist_prob, user_pref),
+            } => (*hist_prob, *user_pref),
             _ => (f64::NEG_INFINITY, None),
         };
         // Linear interpolation base unigram and history unigram
@@ -159,7 +159,7 @@ struct KEntry {
 /// beams;Speech},
 fn find_k_paths<F>(k: u8, lattice: &Lattice, cost_fn: F) -> Vec<Hypothesis>
 where
-    F: Fn(Candidate, Candidate) -> f64,
+    F: Fn(&Candidate, &Candidate) -> f64,
 {
     let len = lattice.len;
     let keep = k as usize;
@@ -175,8 +175,8 @@ where
         let layer = std::mem::take(&mut layers[p]);
         for (prev, entries) in layer {
             for e in &lattice.edges[p] {
-                let cost = cost_fn(prev, e.cand);
-                let keep_list = get_keep_list(&mut layers[e.end as usize], e.cand);
+                let cost = cost_fn(&prev, &e.cand);
+                let keep_list = get_keep_list(&mut layers[e.end as usize], &e.cand);
                 for ent in &entries {
                     insert_keep_k(keep_list, ent.cost + cost, ent.tid, e, &mut trails, keep);
                 }
@@ -201,12 +201,12 @@ where
 
 fn get_keep_list<'a>(
     layer: &'a mut Vec<(Candidate, Vec<KEntry>)>,
-    surface: Candidate,
+    surface: &Candidate,
 ) -> &'a mut Vec<KEntry> {
-    if let Some(i) = layer.iter().position(|(s, _)| *s == surface) {
+    if let Some(i) = layer.iter().position(|(s, _)| s == surface) {
         &mut layer[i].1
     } else {
-        layer.push((surface, vec![]));
+        layer.push((surface.clone(), vec![]));
         let last = layer.len() - 1;
         &mut layer[last].1
     }
@@ -231,7 +231,7 @@ fn insert_keep_k(
         return;
     }
     let tid = trails.len();
-    trails.push((parent_tid, *e));
+    trails.push((parent_tid, e.clone()));
     keep_list.insert(pos, KEntry { cost, tid });
     keep_list.truncate(keep);
 }
@@ -239,9 +239,9 @@ fn insert_keep_k(
 fn reconstruct(trails: &[(usize, Edge)], tid: usize) -> Vec<Candidate> {
     let mut index = tid;
     let mut acc = vec![];
-    while let Some(&(tid, edge)) = trails.get(index) {
-        acc.push(edge.cand);
-        index = tid;
+    while let Some((tid, edge)) = trails.get(index) {
+        acc.push(edge.cand.clone());
+        index = *tid;
         if index == 0 {
             break;
         }
@@ -284,6 +284,10 @@ mod test {
         }
     }
 
+    fn simple_cost(_c1: &Candidate, _c2: &Candidate) -> f64 {
+        1.0
+    }
+
     #[test]
     fn simple_shortest_path() {
         let lattice = Lattice {
@@ -306,15 +310,20 @@ mod test {
             ],
         };
 
-        let cost_fn = |_w1, _w2| 1.0;
-
         assert_eq!(
             vec![Hypothesis {
                 candidates: vec![word(3),],
                 cost: 1.0
             }],
-            find_k_paths(1, &lattice, cost_fn)
+            find_k_paths(1, &lattice, simple_cost)
         );
+    }
+
+    fn multiple_cost(_c1: &Candidate, c2: &Candidate) -> f64 {
+        match c2 {
+            Candidate::Word { wid, .. } => wid.0 as f64,
+            _ => f64::INFINITY,
+        }
     }
 
     #[test]
@@ -343,17 +352,12 @@ mod test {
             ],
         };
 
-        let cost_fn = |_w1, w2| match w2 {
-            Candidate::Word { wid, .. } => wid.0 as f64,
-            _ => f64::INFINITY,
-        };
-
         assert_eq!(
             vec![Hypothesis {
                 candidates: vec![word(1), word(2),],
                 cost: 3.0
             }],
-            find_k_paths(1, &lattice, cost_fn)
+            find_k_paths(1, &lattice, multiple_cost)
         );
     }
 

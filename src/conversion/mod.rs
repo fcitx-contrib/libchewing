@@ -96,12 +96,12 @@ pub enum Gap {
 }
 
 /// A smallest unit of input in the pre-edit buffer.
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub enum Symbol {
     /// Chinese syllable
     Syllable(Syllable),
     /// Any direct character
-    Grapheme(char),
+    Grapheme(String),
 }
 
 impl Debug for Symbol {
@@ -120,16 +120,16 @@ impl Symbol {
     pub fn is_char(&self) -> bool {
         matches!(self, Symbol::Grapheme(_))
     }
-    pub fn to_syllable(self) -> Option<Syllable> {
+    pub fn to_syllable(&self) -> Option<Syllable> {
         match self {
-            Symbol::Syllable(syllable) => Some(syllable),
+            Symbol::Syllable(syllable) => Some(*syllable),
             Symbol::Grapheme(_) => None,
         }
     }
-    pub fn to_char(self) -> Option<char> {
+    pub fn to_char(&self) -> Option<String> {
         match self {
             Symbol::Syllable(_) => None,
-            Symbol::Grapheme(c) => Some(c),
+            Symbol::Grapheme(c) => Some(c.clone()),
         }
     }
 }
@@ -140,9 +140,12 @@ impl From<Syllable> for Symbol {
     }
 }
 
-impl From<char> for Symbol {
-    fn from(value: char) -> Self {
-        Symbol::Grapheme(value)
+impl<T> From<T> for Symbol
+where
+    T: Into<String>,
+{
+    fn from(value: T) -> Self {
+        Symbol::Grapheme(value.into())
     }
 }
 
@@ -217,7 +220,7 @@ impl Composition {
         if index >= self.len() {
             return None;
         }
-        Some(self.symbols[index])
+        Some(self.symbols[index].clone())
     }
     pub fn symbols(&self) -> &[Symbol] {
         &self.symbols

@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+use bstr::ByteSlice;
+
 use super::{Composition, ConversionEngine, Gap, Interval, Outcome};
 use crate::{
     conversion::{Decoder, LatticeBuilder},
@@ -46,7 +48,7 @@ impl ChewingEngine {
                     .map(|(text, is_phrase)| {
                         let int = Interval {
                             start: cursor,
-                            end: cursor + text.chars().count(),
+                            end: cursor + text.as_bytes().graphemes().count(),
                             is_phrase,
                             text,
                         };

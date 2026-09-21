@@ -998,6 +998,34 @@ void test_userphrase_remove_builtin()
     ctx = NULL;
 }
 
+void test_userphrase_multi_codepoint_character()
+{
+    ChewingContext *ctx;
+    int ret;
+
+    /* 冊 followed by variation selector 17: two codepoints, one character */
+    const char phrase[] = "\xE5\x86\x8A\xF3\xA0\x84\x80";
+    const char one_syllable[] = "\xE3\x84\x98\xE3\x84\x9C\xCB\x8B";     /* ㄘㄜˋ */
+    const char two_syllables[] = "\xE3\x84\x98\xE3\x84\x9C\xCB\x8B \xE3\x84\x95\xCB\x8B";       /* ㄘㄜˋ ㄕˋ */
+
+    clean_userphrase();
+
+    ctx = chewing_new();
+    start_testcase(ctx);
+
+    /* One character matches one syllable, however many codepoints it takes */
+    ret = chewing_userphrase_add(ctx, phrase, one_syllable);
+    ok(ret == 1, "chewing_userphrase_add() return value `%d' shall be `%d'", ret, 1);
+    ret = chewing_userphrase_lookup(ctx, phrase, one_syllable);
+    ok(ret == 1, "chewing_userphrase_lookup() return value `%d' shall be `%d'", ret, 1);
+
+    /* The same one character cannot match two syllables */
+    ret = chewing_userphrase_add(ctx, phrase, two_syllables);
+    ok(ret == 0, "chewing_userphrase_add() return value `%d' shall be `%d'", ret, 0);
+
+    chewing_delete(ctx);
+}
+
 int main(int argc, char *argv[])
 {
     putenv("CHEWING_PATH=" CHEWING_DATA_PREFIX);
@@ -1013,6 +1041,7 @@ int main(int argc, char *argv[])
     test_userphrase_double_free();
     test_userphrase_remove();
     // test_userphrase_remove_builtin();
+    test_userphrase_multi_codepoint_character();
 
     return exit_status();
 }

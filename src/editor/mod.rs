@@ -11,6 +11,7 @@ use std::{
     path::PathBuf,
 };
 
+use bstr::ByteSlice;
 use log::{debug, error, info, warn};
 use scoped_error::{ErrorExt, bail, expect_error, impl_context_error};
 
@@ -823,7 +824,8 @@ impl SharedState {
             .into_iter()
             .map(|interval| interval.text)
             .collect::<String>()
-            .chars()
+            .as_bytes()
+            .graphemes()
             .skip(start)
             .take(end - start)
             .collect::<String>();
@@ -845,20 +847,20 @@ impl SharedState {
     }
     fn learn_phrase(&mut self, syllables: &[Syllable], phrase: &str) -> Result<(), EditorError> {
         expect_error("Failed to learn phrase", || {
-            if syllables.len() != phrase.chars().count() {
+            if syllables.len() != phrase.as_bytes().graphemes().count() {
                 warn!(
                     "syllables({:?})[{}] and phrase({})[{}] has different length",
                     &syllables,
                     syllables.len(),
                     &phrase,
-                    phrase.chars().count()
+                    phrase.as_bytes().graphemes().count()
                 );
                 bail!(
                     "syllables({:?})[{}] and phrase({})[{}] has different length",
                     &syllables,
                     syllables.len(),
                     &phrase,
-                    phrase.chars().count()
+                    phrase.as_bytes().graphemes().count()
                 );
             }
             let wid = self.string_table.intern(phrase);
@@ -1296,7 +1298,8 @@ impl State for Entering {
                             // Priortize symbol input
                             if let Some(expended) = shared.abbr.find_abbrev(ev.ksym.to_unicode()) {
                                 expended
-                                    .chars()
+                                    .as_bytes()
+                                    .graphemes()
                                     .for_each(|ch| shared.com.insert(Symbol::from(ch)));
                                 shared.snapshot(false, 0);
                                 return self.spin_absorb();
@@ -1840,6 +1843,11 @@ impl EditorBuilder {
         self
     }
 
+    pub fn symbol_selector(mut self, sym_sel: SymbolSelector) -> Self {
+        self.sym_sel = sym_sel;
+        self
+    }
+
     pub fn build(self) -> Editor {
         let dict = CompositeDict::new(
             self.static_dict.clone(),
@@ -1884,7 +1892,10 @@ impl_context_error!(pub NewEditorError);
 mod tests {
     use super::BasicEditor;
     use super::collect_new_phrases;
+    use crate::dictionary::LookupStrategy;
+    use crate::dictionary::StringTable;
     use crate::dictionary::StringTableBuilder;
+    use crate::editor::SymbolSelector;
     use crate::editor::{EditorBuilder, LanguageMode};
     use crate::lm::StaticDictBuilder;
     use crate::user::UserDict;
@@ -2410,5 +2421,201 @@ mod tests {
             ],
             phrases
         );
+    }
+
+    /// U+E0100 is the first variation selector of an ideographic variation
+    /// sequence, so 冊\u{E0100} is one character made of two codepoints.
+    const IVS_CE: &str = "\u{518A}\u{E0100}";
+    /// A family emoji, three emoji joined by zero width joiners.
+    const ZWJ_FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+
+    #[test]
+    fn editing_mode_convert_multi_codepoint_character() {
+        let mut builder = StringTableBuilder::new();
+        builder.insert(IVS_CE);
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid(IVS_CE).unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .build();
+
+        for key in [b'h', b'k', b'4'] {
+            editor.process_keyevent(map_ascii(&QWERTY_MAP, key));
+        }
+
+        assert_eq!(IVS_CE, editor.display());
+        assert_eq!(1, editor.len(), "the sequence occupies one buffer position");
+    }
+
+    #[test]
+    fn editing_mode_input_multi_codepoint_symbol() {
+        let table = format!("{ZWJ_FAMILY}\n\u{1F1F9}\u{1F1FC}\n");
+        let sym_sel = SymbolSelector::new(table.as_bytes()).expect("should parse");
+
+        let mut builder = StringTableBuilder::new();
+        builder.insert(IVS_CE);
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid(IVS_CE).unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .symbol_selector(sym_sel)
+            .build();
+
+        for key in [b'`', b'1'] {
+            editor.process_keyevent(map_ascii(&QWERTY_MAP, key));
+        }
+
+        assert_eq!(ZWJ_FAMILY, editor.display());
+        assert_eq!(1, editor.len(), "the sequence occupies one buffer position");
+
+        editor.process_keyevent(
+            KeyboardEvent::builder()
+                .code(keycode::KEY_BACKSPACE)
+                .ksym(keysym::SYM_BACKSPACE)
+                .build(),
+        );
+
+        assert_eq!("", editor.display(), "backspace removes the whole sequence");
+    }
+
+    #[test]
+    fn cursor_treats_multi_codepoint_symbol_as_one_position() {
+        let table = format!("{ZWJ_FAMILY}\n");
+        let sym_sel = SymbolSelector::new(table.as_bytes()).expect("should parse");
+
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .symbol_selector(sym_sel)
+            .build();
+
+        let arrow = |code, ksym| KeyboardEvent::builder().code(code).ksym(ksym).build();
+
+        // The emoji from the symbol table, then a Chinese character
+        for key in [b'`', b'1', b'h', b'k', b'4'] {
+            editor.process_keyevent(map_ascii(&QWERTY_MAP, key));
+        }
+        assert_eq!(format!("{ZWJ_FAMILY}冊"), editor.display());
+        assert_eq!(2, editor.len());
+        assert_eq!(2, editor.cursor());
+
+        // One press of Left steps over the whole emoji, not one codepoint
+        editor.process_keyevent(arrow(keycode::KEY_LEFT, keysym::SYM_LEFT));
+        assert_eq!(1, editor.cursor());
+        editor.process_keyevent(arrow(keycode::KEY_LEFT, keysym::SYM_LEFT));
+        assert_eq!(0, editor.cursor());
+
+        editor.process_keyevent(arrow(keycode::KEY_RIGHT, keysym::SYM_RIGHT));
+        assert_eq!(1, editor.cursor());
+
+        // Delete at the start removes every codepoint of the emoji at once
+        editor.process_keyevent(arrow(keycode::KEY_LEFT, keysym::SYM_LEFT));
+        editor.process_keyevent(arrow(keycode::KEY_DELETE, keysym::SYM_DELETE));
+        assert_eq!("冊", editor.display());
+        assert_eq!(1, editor.len());
+    }
+
+    #[test]
+    fn selecting_candidate_on_multi_codepoint_symbol_does_not_panic() {
+        let table = format!("{ZWJ_FAMILY}\n");
+        let sym_sel = SymbolSelector::new(table.as_bytes()).expect("should parse");
+
+        let mut builder = StringTableBuilder::new();
+        builder.insert("冊");
+        builder.insert("測");
+        let string_table = builder.build();
+        let mut dict_builder = StaticDictBuilder::new();
+        dict_builder.insert(
+            &[syl![bpmf::C, bpmf::E, bpmf::TONE4]],
+            string_table.get_wid("冊").unwrap(),
+        );
+        let dict = dict_builder.build();
+        let mut editor = EditorBuilder::new()
+            .string_table(string_table)
+            .static_dict(dict)
+            .symbol_selector(sym_sel)
+            .build();
+
+        // Insert the emoji from the symbol table, then ask for candidates on it
+        for key in [b'`', b'1'] {
+            editor.process_keyevent(map_ascii(&QWERTY_MAP, key));
+        }
+        assert_eq!(ZWJ_FAMILY, editor.display());
+
+        editor.process_keyevent(
+            KeyboardEvent::builder()
+                .code(keycode::KEY_DOWN)
+                .ksym(keysym::SYM_DOWN)
+                .build(),
+        );
+
+        // No category holds an emoji sequence, so there are no candidates and
+        // the buffer is left alone
+        assert_eq!(ZWJ_FAMILY, editor.display());
+    }
+
+    #[test]
+    fn learn_phrase_of_multi_codepoint_characters() {
+        let st = StringTable::new();
+        let mut editor = EditorBuilder::new().string_table(st.clone()).build();
+
+        let syllables = [
+            syl![bpmf::C, bpmf::E, bpmf::TONE4],
+            syl![bpmf::SH, bpmf::TONE4],
+        ];
+        let phrase = format!("{IVS_CE}\u{8A66}");
+
+        editor
+            .learn_phrase(&syllables, &phrase)
+            .expect("two characters should match two syllables");
+
+        let learned = editor
+            .user_dict()
+            .lookup(&syllables, LookupStrategy::Standard);
+        assert_eq!(
+            vec![phrase.as_str()],
+            learned
+                .iter()
+                .map(|it| st.get_text(it.0).unwrap())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn learn_phrase_rejects_wrong_character_count() {
+        let mut editor = EditorBuilder::new().build();
+
+        let syllables = [
+            syl![bpmf::C, bpmf::E, bpmf::TONE4],
+            syl![bpmf::SH, bpmf::TONE4],
+        ];
+
+        // Two codepoints but only one character, so it cannot match two
+        // syllables
+        assert!(editor.learn_phrase(&syllables, IVS_CE).is_err());
     }
 }

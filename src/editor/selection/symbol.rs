@@ -4,6 +4,8 @@ use std::{
     path::Path,
 };
 
+use bstr::ByteSlice;
+
 use crate::conversion::Symbol;
 
 #[derive(Debug, Default, Clone)]
@@ -45,7 +47,8 @@ impl SymbolSelector {
     pub(crate) fn menu(&self) -> Vec<String> {
         match self.cursor {
             Some(cursor) => self.table[cursor as usize]
-                .chars()
+                .as_bytes()
+                .graphemes()
                 .map(|c| c.to_string())
                 .collect(),
             None => self.category.iter().map(|cat| cat.0.clone()).collect(),
@@ -60,7 +63,7 @@ impl SymbolSelector {
                 let cat = &self.category[n];
                 if cat.1 == usize::MAX {
                     self.cursor = None;
-                    cat.0.chars().next().map(Symbol::from)
+                    cat.0.as_bytes().graphemes().next().map(Symbol::from)
                 } else {
                     self.cursor = Some(cat.1 as u8);
                     None
@@ -68,7 +71,11 @@ impl SymbolSelector {
             }
             Some(cursor) => {
                 self.cursor = None;
-                self.table[cursor as usize].chars().nth(n).map(Symbol::from)
+                self.table[cursor as usize]
+                    .as_bytes()
+                    .graphemes()
+                    .nth(n)
+                    .map(Symbol::from)
             }
         }
     }
@@ -85,18 +92,24 @@ impl SpecialSymbolSelector {
     }
     pub(crate) fn menu(&self) -> Vec<String> {
         match self.find_category() {
-            Some(cat) => cat.chars().skip(1).map(|c| c.to_string()).collect(),
+            Some(cat) => cat
+                .as_bytes()
+                .graphemes()
+                .skip(1)
+                .map(|c| c.to_string())
+                .collect(),
             None => Vec::new(),
         }
     }
     pub(crate) fn select(&self, n: usize) -> Option<Symbol> {
         self.find_category()
-            .and_then(|cat| cat.chars().skip(1).nth(n).map(Symbol::from))
+            .and_then(|cat| cat.as_bytes().graphemes().skip(1).nth(n).map(Symbol::from))
     }
     fn find_category(&self) -> Option<&str> {
+        let my_cat = self.symbol.to_char()?;
         Self::TABLE
             .iter()
-            .find(|cat| cat.contains(self.symbol.to_char().unwrap()))
+            .find(|cat| cat.contains(&my_cat))
             .copied()
     }
     const TABLE: &'static [&'static str; 55] = &[
@@ -162,8 +175,11 @@ impl SpecialSymbolSelector {
 mod tests {
     use std::io;
 
+    use super::SpecialSymbolSelector;
     use super::SymbolSelector;
     use crate::conversion::Symbol;
+    use crate::syl;
+    use crate::zhuyin::Bopomofo;
 
     #[test]
     fn select_level_one_leaf() {
@@ -193,5 +209,66 @@ mod tests {
         assert_eq!(vec!["…", "※", "常用符號", ""], sel.menu());
         assert_eq!(None, sel.select(3));
         assert_eq!(vec!["…", "※", "常用符號", ""], sel.menu());
+    }
+
+    #[test]
+    fn special_symbol_of_multi_codepoint_character_has_no_category() {
+        // No category holds an emoji sequence, so the menu is empty rather
+        // than the lookup panicking
+        let symbol = Symbol::from("\u{1F468}\u{200D}\u{1F469}");
+        let sel = SpecialSymbolSelector::new(symbol);
+
+        assert!(sel.menu().is_empty());
+        assert_eq!(None, sel.select(0));
+    }
+
+    #[test]
+    fn special_symbol_of_syllable_has_no_category() {
+        let sel = SpecialSymbolSelector::new(Symbol::from(syl![Bopomofo::C, Bopomofo::E]));
+
+        assert!(sel.menu().is_empty());
+        assert_eq!(None, sel.select(0));
+    }
+
+    #[test]
+    fn special_symbol_of_plain_character_still_works() {
+        let sel = SpecialSymbolSelector::new(Symbol::from('('));
+
+        assert_eq!(vec!["（", "Ⅸ"], sel.menu());
+        assert_eq!(Some(Symbol::from('（')), sel.select(0));
+    }
+
+    #[test]
+    fn select_multi_codepoint_level_one_leaf() {
+        let reader =
+            io::Cursor::new("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\n\u{1F1F9}\u{1F1FC}\n");
+        let mut sel = SymbolSelector::new(reader).expect("should parse");
+
+        assert_eq!(
+            vec![
+                "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+                "\u{1F1F9}\u{1F1FC}"
+            ],
+            sel.menu()
+        );
+        assert_eq!(
+            Symbol::from("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"),
+            sel.select(0).unwrap()
+        );
+    }
+
+    #[test]
+    fn select_multi_codepoint_level_two_leaf() {
+        // A row of a keycap sequence, an ideographic variation sequence and a
+        // plain character
+        let reader = io::Cursor::new("符號=1\u{FE0F}\u{20E3}\u{908A}\u{E0100}\u{908A}\n");
+        let mut sel = SymbolSelector::new(reader).expect("should parse");
+
+        assert_eq!(None, sel.select(0));
+        assert_eq!(
+            vec!["1\u{FE0F}\u{20E3}", "\u{908A}\u{E0100}", "\u{908A}"],
+            sel.menu()
+        );
+        assert_eq!(Symbol::from("\u{908A}\u{E0100}"), sel.select(1).unwrap());
     }
 }

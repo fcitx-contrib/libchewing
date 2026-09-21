@@ -1,5 +1,6 @@
 //! Word lattice represents many possible intepretations of the phonetic input.
 
+use bstr::ByteSlice;
 use log::trace;
 
 use crate::{
@@ -16,7 +17,7 @@ pub struct Lattice {
     pub(crate) edges: Vec<Vec<Edge>>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Edge {
     pub(crate) end: u8,
     pub(crate) cand: Candidate,
@@ -33,7 +34,7 @@ impl Lattice {
         F: Fn(&str) -> Option<WordId>,
     {
         // Cache char indexes
-        let mut chars_vec: Vec<usize> = s.char_indices().map(|ci| ci.0).collect();
+        let mut chars_vec: Vec<usize> = s.as_bytes().grapheme_indices().map(|ci| ci.0).collect();
         // Add end of string offset
         chars_vec.push(s.len());
         // Number of chars
@@ -58,7 +59,7 @@ impl Lattice {
                 } else if (end - start) == 1 {
                     edges[start].push(Edge {
                         end: end as u8,
-                        cand: Candidate::Grapheme(substr.chars().next().unwrap()),
+                        cand: Candidate::Grapheme(substr.to_owned()),
                     });
                 }
             }

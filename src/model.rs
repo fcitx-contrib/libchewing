@@ -56,7 +56,7 @@ impl WordId {
 }
 
 /// A possible intepretation of the input state.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum Candidate {
     #[default]
     None,
@@ -65,7 +65,7 @@ pub enum Candidate {
         hist_prob: f64,
         user_pref: Option<i8>,
     },
-    Grapheme(char),
+    Grapheme(String),
 }
 
 impl Candidate {

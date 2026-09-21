@@ -80,7 +80,7 @@ pub(crate) fn eval(search_path: &str, model_bin: &str, alpha: f64, verbose: bool
 
                     for part in input.split_whitespace() {
                         if part == "，" {
-                            comp.push(Symbol::Grapheme('，'));
+                            comp.push(Symbol::Grapheme(String::from("，")));
                         } else {
                             let syl: Syllable = part.parse().unwrap();
                             comp.push(Symbol::Syllable(syl));
