@@ -49,21 +49,34 @@ fn encode_varint(mut value: u32, buf: &mut Vec<u8>) {
 
 /// Decode a varint starting at `offset` in `data`.
 /// Returns `(decoded_value, bytes_consumed)`.
+///
+/// # Panics
+/// Panics if the varint is truncated (runs past the end of `data`),
+/// starts beyond the end of `data`, or overflows `u32`.
 fn decode_varint(data: &[u8], offset: usize) -> (u32, usize) {
     let mut result: u32 = 0;
     let mut shift: u32 = 0;
     let mut pos = offset;
     loop {
-        let byte = data[pos];
+        let byte = *data
+            .get(pos)
+            .unwrap_or_else(|| panic!("varint at offset {offset} is truncated"));
         pos += 1;
+
+        if shift == 28 {
+            // Final (5th) byte: only the low 4 bits fit in a u32.
+            assert!(byte <= 0x0F, "varint at offset {offset} overflows u32");
+            result |= (byte as u32) << 28;
+            return (result, pos - offset);
+        }
+
         result |= ((byte & 0x7F) as u32) << shift;
+
         if byte & 0x80 == 0 {
-            break;
+            return (result, pos - offset);
         }
         shift += 7;
-        debug_assert!(shift < 35, "varint overflow");
     }
-    (result, pos - offset)
 }
 
 /// Static bigram and unigram model stored in a compact CSR format.
@@ -493,6 +506,7 @@ impl_context_error!(pub StaticLmError);
 
 #[cfg(test)]
 mod test {
+    use super::decode_varint;
     use crate::{
         lm::{
             StaticLmCompiler,
@@ -500,6 +514,75 @@ mod test {
         },
         model::WordId,
     };
+
+    #[test]
+    fn simple_values() {
+        assert_eq!(decode_varint(&[0x00], 0), (0, 1));
+        assert_eq!(decode_varint(&[0x01], 0), (1, 1));
+        assert_eq!(decode_varint(&[0x7F], 0), (127, 1));
+    }
+
+    #[test]
+    fn multi_byte() {
+        assert_eq!(decode_varint(&[0xAC, 0x02], 0), (300, 2));
+        assert_eq!(decode_varint(&[0x80, 0x80, 0x01], 0), (16384, 3));
+    }
+
+    #[test]
+    fn max_value() {
+        // u32::MAX takes exactly 5 bytes, last byte = 0x0F
+        assert_eq!(
+            decode_varint(&[0xFF, 0xFF, 0xFF, 0xFF, 0x0F], 0),
+            (u32::MAX, 5)
+        );
+    }
+
+    #[test]
+    fn respects_offset() {
+        let data = [0xAA, 0xAC, 0x02];
+        assert_eq!(decode_varint(&data, 1), (300, 2));
+    }
+
+    #[test]
+    fn extra_bytes_ignored() {
+        assert_eq!(decode_varint(&[0x2A, 0xFF, 0x01], 0), (42, 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "truncated")]
+    fn truncated_input() {
+        decode_varint(&[0x80], 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "truncated")]
+    fn truncated_after_continuation() {
+        decode_varint(&[0xFF, 0xFF], 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "truncated")]
+    fn truncated_needing_fifth_byte() {
+        decode_varint(&[0xFF; 4], 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "truncated")]
+    fn offset_past_end() {
+        decode_varint(&[0x01], 5);
+    }
+
+    #[test]
+    #[should_panic(expected = "overflows")]
+    fn overflow_fifth_byte() {
+        decode_varint(&[0xFF, 0xFF, 0xFF, 0xFF, 0x10], 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "overflows")]
+    fn overflow_fifth_byte_max() {
+        decode_varint(&[0xFF, 0xFF, 0xFF, 0xFF, 0x7F], 0);
+    }
 
     #[test]
     fn quantize_unquantize() {
