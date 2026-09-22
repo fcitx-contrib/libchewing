@@ -40,21 +40,35 @@ impl<R: Read> BareDecoder<R> {
         expect_error("Failed to decode u16 from buffer", || {
             let mut buf = [0u8; 2];
             self.reader.read_exact(&mut buf)?;
-            Ok(u16::from_le_bytes(buf.try_into()?))
+            Ok(u16::from_le_bytes(buf))
         })
     }
     pub(crate) fn read_u32(&mut self) -> Result<u32, BareError> {
         expect_error("Failed to decode u32 from buffer", || {
             let mut buf = [0u8; 4];
             self.reader.read_exact(&mut buf)?;
-            Ok(u32::from_le_bytes(buf.try_into()?))
+            Ok(u32::from_le_bytes(buf))
         })
     }
     pub(crate) fn read_u64(&mut self) -> Result<u64, BareError> {
         expect_error("Failed to decode u64 from buffer", || {
             let mut buf = [0u8; 8];
             self.reader.read_exact(&mut buf)?;
-            Ok(u64::from_le_bytes(buf.try_into()?))
+            Ok(u64::from_le_bytes(buf))
+        })
+    }
+    pub(crate) fn read_f32(&mut self) -> Result<f32, BareError> {
+        expect_error("Failed to decode f32 from buffer", || {
+            let mut buf = [0u8; 4];
+            self.reader.read_exact(&mut buf)?;
+            Ok(f32::from_le_bytes(buf))
+        })
+    }
+    pub(crate) fn read_f64(&mut self) -> Result<f64, BareError> {
+        expect_error("Failed to decode f64 from buffer", || {
+            let mut buf = [0u8; 8];
+            self.reader.read_exact(&mut buf)?;
+            Ok(f64::from_le_bytes(buf))
         })
     }
     pub(crate) fn read_data(&mut self) -> Result<Vec<u8>, BareError> {
@@ -119,6 +133,18 @@ impl<W: Write> BareEncoder<W> {
     }
     pub(crate) fn write_u64(&mut self, value: u64) -> Result<(), BareError> {
         expect_error("Failed to encode u64", || {
+            self.writer.write_all(&value.to_le_bytes())?;
+            Ok(())
+        })
+    }
+    pub(crate) fn write_f32(&mut self, value: f32) -> Result<(), BareError> {
+        expect_error("Failed to encode f32", || {
+            self.writer.write_all(&value.to_le_bytes())?;
+            Ok(())
+        })
+    }
+    pub(crate) fn write_f64(&mut self, value: f64) -> Result<(), BareError> {
+        expect_error("Failed to encode f64", || {
             self.writer.write_all(&value.to_le_bytes())?;
             Ok(())
         })

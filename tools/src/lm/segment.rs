@@ -11,6 +11,7 @@ use chewing::{
     dictionary::StringTable,
     lm::{LoadMode, StaticLm},
     model::Candidate,
+    user::HistoryDict,
 };
 
 pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
@@ -21,6 +22,7 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
 
     let decoder = Decoder {
         lm,
+        hist: HistoryDict::new(string_table.clone()),
         lambda: Decoder::LAMBDA,
     };
 

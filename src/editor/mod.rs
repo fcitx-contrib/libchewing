@@ -278,6 +278,7 @@ impl Editor {
 
             let decoder = Decoder {
                 lm,
+                hist: hist_dict.clone(),
                 lambda: Decoder::LAMBDA,
             };
 
@@ -869,7 +870,8 @@ impl SharedState {
                 self.user_dict.insert(syllables, phrase);
                 return Ok(());
             }
-            self.hist_dict.observe(syllables, phrase);
+            self.hist_dict
+                .observe_unigram(self.hist_dict.new_gen(), syllables, phrase);
             self.dirty_level += 1;
             Ok(())
         })
@@ -941,8 +943,14 @@ impl SharedState {
         self.last_key_behavior = EditorKeyBehavior::Commit;
     }
     fn auto_learn(&mut self, intervals: &[Interval]) {
-        for (syllables, phrase) in collect_new_phrases(intervals, self.com.symbols()) {
-            self.hist_dict.observe(&syllables, &phrase);
+        let g = self.hist_dict.new_gen();
+        let mut prev: Option<String> = None;
+        for (syllables, word) in collect_new_phrases(intervals, self.com.symbols()) {
+            self.hist_dict.observe_unigram(g, &syllables, &word);
+            if let Some(prev) = prev {
+                self.hist_dict.observe_bigram(g, &prev, &word);
+            }
+            prev = Some(word);
             self.dirty_level += 1;
         }
     }
@@ -1863,6 +1871,7 @@ impl EditorBuilder {
 
         let decoder = Decoder {
             lm: self.lm,
+            hist: self.history_dict.clone(),
             lambda: Decoder::LAMBDA,
         };
         let conversion_engine = Box::new(ChewingEngine {

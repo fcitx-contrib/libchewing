@@ -106,23 +106,41 @@ type HistoryDictFile union {HistoryDictFileV1}
 
 type HistoryDictFileV1 struct {
     header: HistoryDictHeader,
-    payload: HistoryDictList,
+    words: HistoryDictWords,
+    unigrams: HistoryDictUnigrams,
+    bigrams: HistoryDictBigrams,
 }
 
 type HistoryDictHeader struct {
     flags: u32
     half_life: u32
     generation: u64
-    count: u32
+    unigram_total: f64
+    unigram_total_last_gen: u64
 }
 
-type HistoryDictList struct {
-    records: list<HistoryDictEntry>[count]
+type HistoryDictUnigrams struct {
+    records: list<HistoryDictUnigramEntry>
 }
 
-type HistoryDictEntry struct {
+type HistoryDictUnigramEntry struct {
     syllables: list<u16>
-    word: str
-    seen: u32
-    epoch: u64
+    file_wid: u32
+    count: f32
+    last_gen: u64
+}
+
+type HistoryDictBigrams struct {
+    records: list<HistoryDictBigramEntry>
+}
+
+type HistoryDictBigramEntry struct {
+    file_prev_wid: u32
+    file_wid: u32
+    count: f32
+    last_gen: u64
+}
+
+type HistoryDictWords struct {
+    records: list<str>
 }

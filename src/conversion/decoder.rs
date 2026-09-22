@@ -6,6 +6,7 @@ use crate::{
     conversion::word_lattice::{Edge, Lattice},
     lm::static_lm::StaticLm,
     model::{Candidate, WordId},
+    user::HistoryDict,
 };
 
 /// Converts word lattice to possible sentence hypotheses.
@@ -17,6 +18,8 @@ use crate::{
 pub struct Decoder {
     /// Bigram and unigram language model.
     pub lm: StaticLm,
+    /// User history based bigram language model.
+    pub hist: HistoryDict,
     /// Bigram to unigram back-off weight.
     ///
     /// [`Decoder::LAMBDA`] can be used as the default.
@@ -118,13 +121,14 @@ impl Decoder {
             LOG10_LAMBDA_BASE_UNIGRAM + self.lm.unigram(wid2),
             LOG10_LAMBDA_HIST_UNIGRAM + hist_prob,
         );
+        let p_bi = log10_sum_exp(
+            LOG10_LAMBDA_BASE_BIGRAM + self.lm.bigram(wid1, wid2),
+            LOG10_LAMBDA_HIST_BIGRAM + self.hist.bigram(wid1, wid2),
+        );
         // Linear interpolation unigram and bigram
         let bigram_weight = self.lambda.log10();
         let unigram_weight = (1.0 - self.lambda).log10();
-        let mixed = log10_sum_exp(
-            bigram_weight + self.lm.bigram(wid1, wid2),
-            unigram_weight + p_uni,
-        );
+        let mixed = log10_sum_exp(bigram_weight + p_bi, unigram_weight + p_uni);
         let cost = -mixed;
         let manual_gain = user_pref.unwrap_or(0) as f64 / 100.0;
         cost - MANUAL_BOOST_FACTOR * manual_gain
@@ -135,6 +139,8 @@ const ERROR_FLOOR: f64 = -30.0;
 const MANUAL_BOOST_FACTOR: f64 = 5.0;
 const LOG10_LAMBDA_HIST_UNIGRAM: f64 = -0.221849;
 const LOG10_LAMBDA_BASE_UNIGRAM: f64 = -0.30103;
+const LOG10_LAMBDA_HIST_BIGRAM: f64 = -0.221849;
+const LOG10_LAMBDA_BASE_BIGRAM: f64 = -0.30103;
 
 #[inline]
 fn log10_sum_exp(a: f64, b: f64) -> f64 {

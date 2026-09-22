@@ -57,7 +57,7 @@ impl CompositeDict {
             }
         }
         // history boost
-        for (wid, hist_prob) in self.inner.history_dict.lookup(syllables, strategy) {
+        for (wid, hist_prob) in self.inner.history_dict.unigram(syllables, strategy) {
             if let Some(pos) = res.iter().position(|cand| cand.0 == wid) {
                 res[pos].1 = hist_prob;
             } else {
