@@ -201,6 +201,19 @@ impl UserDict {
             }
         }
     }
+    pub fn remove(&self, syllables: &[Syllable], word: &str) {
+        let mut lock = self
+            .inner
+            .write()
+            .expect("Unable to acquire UserDict writer lock");
+        if let Ok(syl_vec) = syllables.try_into() {
+            let wid = lock.string_table.intern(word);
+            let word_entries = lock.records.entry(syl_vec).or_default();
+            if let Some(pos) = word_entries.iter().position(|e| e.wid == wid) {
+                word_entries.remove(pos);
+            }
+        }
+    }
     pub fn ban(&self, syllables: &[Syllable], word: &str) {
         let mut lock = self
             .inner
