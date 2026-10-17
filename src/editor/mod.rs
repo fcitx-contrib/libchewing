@@ -1655,7 +1655,7 @@ impl Selecting {
                         editor.com.select(selection);
                         debug!("Auto Shift {}", editor.options.auto_shift_cursor);
                         editor.com.pop_cursor();
-                        if editor.options.auto_shift_cursor {
+                        if editor.options.auto_shift_cursor && !editor.com.is_end_of_buffer() {
                             if editor.options.phrase_choice_rearward {
                                 editor.com.move_cursor_right(1);
                             } else {
