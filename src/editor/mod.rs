@@ -1650,6 +1650,19 @@ impl Selecting {
                 let candidates = sel.candidates(editor);
                 match candidates.get(offset) {
                     Some(wid) => {
+                        if let Some(interval) = editor
+                            .intervals()
+                            .find(|it| it.contains_range(sel.begin(), sel.end()))
+                        {
+                            for (i, ch) in interval.text.as_bytes().graphemes().enumerate() {
+                                let wid = editor.string_table.intern(ch);
+                                editor.com.select(Selection {
+                                    start: interval.start + i,
+                                    end: interval.start + i + 1,
+                                    wid,
+                                });
+                            }
+                        }
                         let selection = Selection {
                             start: sel.begin(),
                             end: sel.end(),

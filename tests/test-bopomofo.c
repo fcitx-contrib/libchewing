@@ -500,7 +500,7 @@ void test_select_candidate_shift_cursor()
 
     type_keystroke_by_string(ctx, "<D><D>2");
 
-    ok_preedit_buffer(ctx, "七上八下納里");
+    ok_preedit_buffer(ctx, "七上八下納裡");
 
     type_keystroke_by_string(ctx, "<D>2");
 
@@ -531,7 +531,7 @@ void test_select_candidate_shift_cursor_rearword()
 
     type_keystroke_by_string(ctx, "<D>2");
 
-    ok_preedit_buffer(ctx, "七上八下納里");
+    ok_preedit_buffer(ctx, "七上八下納裡");
 
     type_keystroke_by_string(ctx, "<D><D>2");
 
@@ -610,6 +610,25 @@ void test_select_with_auto_snapshot()
     chewing_delete(ctx);
 }
 
+void test_select_snapshot_subwords()
+{
+    ChewingContext *ctx;
+
+    clean_userphrase();
+
+    ctx = chewing_new();
+    start_testcase(ctx);
+    chewing_set_phraseChoiceRearward(ctx, 0);
+
+    type_keystroke_by_string(ctx, "vup dj4up ");
+    ok_preedit_buffer(ctx, "新酷音");
+
+    type_keystroke_by_string(ctx, "<D>9");
+    ok_preedit_buffer(ctx, "新酷瘖");
+
+    chewing_delete(ctx);
+}
+
 void test_move_after_select_with_tab()
 {
     ChewingContext *ctx;
@@ -650,6 +669,7 @@ void test_select_candidate()
     test_select_candidate_sorted();
     test_select_without_auto_snapshot();
     test_select_with_auto_snapshot();
+    test_select_snapshot_subwords();
     test_move_after_select_with_tab();
 }
 
