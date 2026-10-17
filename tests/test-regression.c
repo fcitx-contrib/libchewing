@@ -168,7 +168,7 @@ void test_move_cursor_backwards()
     start_testcase(ctx);
 
     type_keystroke_by_string(ctx, "hk4g4<L>hk4g4");
-    ok_preedit_buffer(ctx, "測測試試");
+    ok_preedit_buffer(ctx, "測測試是");
 
     chewing_delete(ctx);
 }
