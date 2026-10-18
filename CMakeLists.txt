@@ -4,6 +4,9 @@ project(libchewing LANGUAGES C)
 set(CMAKE_PROJECT_VERSION 0.14.0-alpha.3)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS ON) # require GNU extensions
+
 find_package(Git)
 if(Git_FOUND)
     execute_process(
@@ -26,12 +29,7 @@ include(CTest)
 set(CTEST_PARALLEL_LEVEL 1)
 
 if(UNIX)
-    set(CMAKE_C_FLAGS "-g -O2 -Wall -fPIC ${CMAKE_C_FLAGS}")
     add_compile_definitions(UNDER_POSIX PIC)
-endif()
-
-if(MSVC)
-    set(CMAKE_C_FLAGS "/utf-8 ${CMAKE_C_FLAGS}")
 endif()
 
 include(CheckCCompilerFlag)
@@ -51,16 +49,15 @@ cmake_dependent_option(
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES GNU|Clang)
-    set(CMAKE_C_FLAGS "-std=gnu99 -finput-charset=utf-8 ${CMAKE_C_FLAGS}")
-    add_compile_definitions(_GNU_SOURCE)
-    option(ENABLE_GCOV "Coverage support" false)
-    if(ENABLE_GCOV)
-        if(CMAKE_C_COMPILER_ID MATCHES Clang)
-            set(CMAKE_C_FLAGS "-fprofile-instr-generate -fcoverage-mapping ${CMAKE_C_FLAGS}")
-        else()
-            set(CMAKE_C_FLAGS "--coverage ${CMAKE_C_FLAGS}")
-        endif()
-    endif()
+    option(ENABLE_GCOV "Coverage support" OFF)
+endif()
+
+add_compile_options("$<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-Wall;-finput-charset=utf-8>")
+add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+
+if(ENABLE_GCOV)
+    add_compile_options("$<$<C_COMPILER_ID:GNU>:--coverage>")
+    add_compile_options("$<$<C_COMPILER_ID:AppleClang,Clang>:-fprofile-instr-generate;-fcoverage-mapping>")
 endif()
 
 add_compile_definitions(HAVE_CONFIG_H=1)
@@ -131,11 +128,11 @@ configure_file(
 
 set(prefix "${CMAKE_INSTALL_PREFIX}")
 set(exec_prefix "\${prefix}")
-set(libdir "\${exec_prefix}/lib")
-set(includedir "\${prefix}/include")
-set(datarootdir "\${prefix}/share")
+set(libdir "\${exec_prefix}/${CMAKE_INSTALL_LIBDIR}")
+set(includedir "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+set(datarootdir "\${prefix}/${CMAKE_INSTALL_DATADIR}")
 set(datadir "\${datarootdir}")
-set(sysconfdir "\${prefix}/etc")
+set(sysconfdir "\${prefix}/${CMAKE_INSTALL_SYSCONFDIR}")
 configure_file(
     ${PROJECT_SOURCE_DIR}/chewing.pc.in
     ${PROJECT_BINARY_DIR}/chewing.pc
