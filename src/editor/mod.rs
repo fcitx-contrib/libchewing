@@ -895,6 +895,12 @@ impl SharedState {
         let result = self
             .learn_phrase(&syllables, &phrase)
             .map_err(|_| "加詞失敗：字數不符或夾雜符號".to_owned());
+        // auto select the word after adding it
+        self.com.select(Selection {
+            start,
+            end,
+            wid: self.string_table.intern(&phrase),
+        });
         if result.is_ok() {
             self.dirty_level += 1;
         }
