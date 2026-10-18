@@ -162,10 +162,10 @@ impl UserDict {
             match word_entries.iter_mut().find(|e| e.wid == wid) {
                 Some(item) => {
                     if item.boost == Self::MIN {
-                        item.boost = 10
+                        item.boost = 0
                     }
                 }
-                None => word_entries.push(UserDictEntry { wid, boost: 10 }),
+                None => word_entries.push(UserDictEntry { wid, boost: 0 }),
             }
         }
     }
