@@ -277,15 +277,17 @@ mod tests {
         dictionary::{CompositeDict, LookupStrategy, StringTable},
         lm::StaticDict,
         syl,
-        user::{HistoryDict, UserDict},
+        user::{HistoryDict, SessionHistoryDict, UserDict},
         zhuyin::Bopomofo::*,
     };
 
     fn make_dict(user_dict: UserDict) -> CompositeDict {
+        let string_table = StringTable::new();
         CompositeDict::new(
             StaticDict::new(),
             StaticDict::new(),
-            HistoryDict::new(StringTable::new()),
+            HistoryDict::new(string_table.clone()),
+            SessionHistoryDict::new(string_table),
             user_dict,
         )
     }

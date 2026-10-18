@@ -9,6 +9,7 @@ use std::{
     io::{BufReader, BufWriter},
     ops::Deref,
     path::PathBuf,
+    time::Instant,
 };
 
 use bstr::ByteSlice;
@@ -36,7 +37,7 @@ use crate::{
     },
     lm::{LoadMode, StaticDict, StaticLm},
     path::SearchPath,
-    user::{HistoryDict, UserDict, migrate_v3_to_v4, should_migrate_from_v3},
+    user::{HistoryDict, SessionHistoryDict, UserDict, migrate_v3_to_v4, should_migrate_from_v3},
     zhuyin::Syllable,
 };
 
@@ -178,6 +179,7 @@ pub(crate) struct SharedState {
     dict: CompositeDict,
     user_dict: UserDict,
     hist_dict: HistoryDict,
+    session_dict: SessionHistoryDict,
     decoder: Decoder,
     abbr: AbbrevTable,
     keybindings: Vec<Keybinding>,
@@ -283,14 +285,20 @@ impl Editor {
                 None => HistoryDict::new(string_table.clone()),
             };
 
-            let composite_dict =
-                CompositeDict::new(static_dict, rare_dict, hist_dict.clone(), user_dict.clone());
+            let session_dict = SessionHistoryDict::new(string_table.clone());
+
+            let composite_dict = CompositeDict::new(
+                static_dict,
+                rare_dict,
+                hist_dict.clone(),
+                session_dict.clone(),
+                user_dict.clone(),
+            );
 
             let word_lattice_builder = LatticeBuilder {
                 dict: composite_dict.clone(),
                 lookup_strategy: LookupStrategy::Standard,
             };
-
             let decoder = Decoder {
                 lm,
                 hist: hist_dict.clone(),
@@ -319,6 +327,7 @@ impl Editor {
                 composite_dict,
                 user_dict,
                 hist_dict,
+                session_dict,
                 decoder,
                 abbrev,
                 sym_sel,
@@ -334,6 +343,7 @@ impl Editor {
         dict: CompositeDict,
         user_dict: UserDict,
         hist_dict: HistoryDict,
+        session_dict: SessionHistoryDict,
         decoder: Decoder,
         abbr: AbbrevTable,
         sym_sel: SymbolSelector,
@@ -348,6 +358,7 @@ impl Editor {
                 dict,
                 user_dict,
                 hist_dict,
+                session_dict,
                 decoder,
                 abbr,
                 keybindings: Self::keybindings_default(),
@@ -991,6 +1002,7 @@ impl SharedState {
     }
     fn auto_learn(&mut self, intervals: &[Interval]) {
         let g = self.hist_dict.new_gen();
+        let now = Instant::now();
         debug!("intervals {:?}", intervals);
         for subclause in intervals.chunk_by(|a, b| a.is_phrase && b.is_phrase) {
             if !subclause[0].is_phrase {
@@ -1005,6 +1017,7 @@ impl SharedState {
             for (syllables, word) in iter {
                 debug!("autolearn unigram {:?} as {}", &syllables, &word);
                 self.hist_dict.observe_unigram(g, &syllables, &word);
+                self.session_dict.observe(now, &syllables, &word);
                 if let Some(prev) = prev {
                     debug!("autolearn bigram ({}, {})", prev, word);
                     self.hist_dict.observe_bigram(g, &prev, &word);
@@ -1956,10 +1969,13 @@ impl EditorBuilder {
     }
 
     pub fn build(self) -> Editor {
+        let session_dict = SessionHistoryDict::new(self.string_table.clone());
+
         let dict = CompositeDict::new(
             self.static_dict.clone(),
             self.rare_dict.clone(),
             self.history_dict.clone(),
+            session_dict.clone(),
             self.user_dict.clone(),
         );
 
@@ -1986,6 +2002,7 @@ impl EditorBuilder {
             dict,
             self.user_dict,
             self.history_dict,
+            session_dict,
             decoder,
             self.abbrev,
             self.sym_sel,

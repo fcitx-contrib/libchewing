@@ -9,7 +9,7 @@ use chewing::{
     dictionary::{CompositeDict, LookupStrategy, StringTable},
     lm::{LoadMode, StaticDict, StaticLm},
     path::SearchPath,
-    user::{HistoryDict, UserDict},
+    user::{HistoryDict, SessionHistoryDict, UserDict},
     zhuyin::Syllable,
 };
 
@@ -34,8 +34,15 @@ pub(crate) fn eval(search_path: &str, model_bin: &str, alpha: f64, verbose: bool
     )?;
     let history_dict = HistoryDict::new(string_table.clone());
     let user_dict = UserDict::new(string_table.clone());
+    let session_dict = SessionHistoryDict::new(string_table.clone());
 
-    let dict = CompositeDict::new(static_dict, rare_dict, history_dict, user_dict);
+    let dict = CompositeDict::new(
+        static_dict,
+        rare_dict,
+        history_dict,
+        session_dict,
+        user_dict,
+    );
 
     let lattice_builder = LatticeBuilder {
         dict,

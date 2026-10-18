@@ -89,7 +89,7 @@ mod tests {
         dictionary::{CompositeDict, StringTable},
         lm::StaticDict,
         syl,
-        user::{HistoryDict, UserDict},
+        user::{HistoryDict, SessionHistoryDict, UserDict},
         zhuyin::Bopomofo::*,
     };
 
@@ -123,7 +123,8 @@ mod tests {
         CompositeDict::new(
             StaticDict::new(),
             StaticDict::new(),
-            HistoryDict::new(string_table),
+            HistoryDict::new(string_table.clone()),
+            SessionHistoryDict::new(string_table),
             user_dict,
         )
     }

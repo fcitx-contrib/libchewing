@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use crate::{
     dictionary::LookupStrategy,
     lm::StaticDict,
     model::Candidate,
-    user::{HistoryDict, UserDict},
+    user::{HistoryDict, SessionHistoryDict, UserDict},
     zhuyin::Syllable,
 };
 
@@ -18,6 +18,7 @@ struct CompositeDictInner {
     static_dict: StaticDict,
     rare_dict: StaticDict,
     history_dict: HistoryDict,
+    session_dict: SessionHistoryDict,
     user_dict: UserDict,
 }
 
@@ -26,6 +27,7 @@ impl CompositeDict {
         static_dict: StaticDict,
         rare_dict: StaticDict,
         history_dict: HistoryDict,
+        session_dict: SessionHistoryDict,
         user_dict: UserDict,
     ) -> CompositeDict {
         CompositeDict {
@@ -33,6 +35,7 @@ impl CompositeDict {
                 static_dict,
                 rare_dict,
                 history_dict,
+                session_dict,
                 user_dict,
             }),
         }
@@ -62,6 +65,14 @@ impl CompositeDict {
                 res[pos].1 = hist_prob;
             } else {
                 res.push((wid, hist_prob, None));
+            }
+        }
+        let now = Instant::now();
+        for (wid, bonus) in self.inner.session_dict.lookup(now, syllables, strategy) {
+            if let Some(pos) = res.iter().position(|cand| cand.0 == wid) {
+                res[pos].1 += bonus;
+            } else {
+                res.push((wid, bonus, None));
             }
         }
         // user boost

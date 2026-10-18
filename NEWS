@@ -26,6 +26,7 @@ What's New in libchewing 0.14.0 (unreleased)
   - editor: invalid spelling no longer clears the bopomofo buffer so user can
     make additional corrections.
   - editor: freeze the characters in a word if only changing a subslice of it.
+  - editor: added initial support for ephemeral session history.
 
 What's New in libchewing 0.13.1 (July 15, 2026)
 ---------------------------------------------------------
