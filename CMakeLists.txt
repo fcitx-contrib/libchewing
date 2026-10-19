@@ -128,11 +128,11 @@ configure_file(
 
 set(prefix "${CMAKE_INSTALL_PREFIX}")
 set(exec_prefix "\${prefix}")
-set(libdir "\${exec_prefix}/${CMAKE_INSTALL_LIBDIR}")
-set(includedir "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
-set(datarootdir "\${prefix}/${CMAKE_INSTALL_DATADIR}")
+set(libdir "${CMAKE_INSTALL_FULL_LIBDIR}")
+set(includedir "${CMAKE_INSTALL_FULL_INCLUDEDIR}")
+set(datarootdir "${CMAKE_INSTALL_FULL_DATADIR}")
 set(datadir "\${datarootdir}")
-set(sysconfdir "\${prefix}/${CMAKE_INSTALL_SYSCONFDIR}")
+set(sysconfdir "${CMAKE_INSTALL_FULL_SYSCONFDIR}")
 configure_file(
     ${PROJECT_SOURCE_DIR}/chewing.pc.in
     ${PROJECT_BINARY_DIR}/chewing.pc
