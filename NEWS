@@ -21,6 +21,8 @@ What's New in libchewing 0.14.0 (unreleased)
   - editor: added initial support for custom keybindings.
   - editor: added new options `chewing.auto_learn_user_history` and
     `chewing.auto_learn_new_words`.
+  - editor: support new option `chewing.auto_wrap_cursor` to automatically wrap
+    cursor from the end of the buffer to the beginning of the buffer.
   - editor: now typing Enter while composing bopomofo will directly output the
     bopomofo symbols.
   - editor: invalid spelling no longer clears the bopomofo buffer so user can

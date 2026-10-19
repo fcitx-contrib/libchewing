@@ -92,6 +92,7 @@ pub struct EditorOptions {
     pub enable_fullwidth_toggle_key: bool,
     pub sort_candidates_by_frequency: bool,
     pub auto_snapshot_selections: bool,
+    pub auto_wrap_cursor: bool,
 }
 
 impl Default for EditorOptions {
@@ -114,6 +115,7 @@ impl Default for EditorOptions {
             enable_fullwidth_toggle_key: true,
             sort_candidates_by_frequency: false,
             auto_snapshot_selections: false,
+            auto_wrap_cursor: false,
         }
     }
 }
@@ -1221,14 +1223,18 @@ impl State for Entering {
                     if shared.com.is_empty() {
                         return self.spin_ignore();
                     }
-                    shared.com.move_cursor_left(1);
+                    shared
+                        .com
+                        .move_cursor_left(1, shared.options.auto_wrap_cursor);
                     self.spin_absorb()
                 }
                 Action::MoveCursorRight => {
                     if shared.com.is_empty() {
                         return self.spin_ignore();
                     }
-                    shared.com.move_cursor_right(1);
+                    shared
+                        .com
+                        .move_cursor_right(1, shared.options.auto_wrap_cursor);
                     self.spin_absorb()
                 }
                 Action::Ignore => self.spin_ignore(),
@@ -1691,11 +1697,11 @@ impl Selecting {
                         editor.com.select(selection);
                         debug!("Auto Shift {}", editor.options.auto_shift_cursor);
                         editor.com.pop_cursor();
-                        if editor.options.auto_shift_cursor && !editor.com.is_end_of_buffer() {
+                        if editor.options.auto_shift_cursor {
                             if editor.options.phrase_choice_rearward {
-                                editor.com.move_cursor_right(1);
+                                editor.com.move_cursor_right(1, false);
                             } else {
-                                editor.com.move_cursor_right(len);
+                                editor.com.move_cursor_right(len, false);
                             }
                         }
                         self.start_entering()
