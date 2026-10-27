@@ -61,9 +61,14 @@ impl SymbolSelector {
                     return None;
                 }
                 let cat = &self.category[n];
+                // not really a category but a single select
                 if cat.1 == usize::MAX {
                     self.cursor = None;
-                    cat.0.as_bytes().graphemes().next().map(Symbol::from)
+                    if cat.0.is_empty() {
+                        None
+                    } else {
+                        Some(Symbol::from(cat.0.clone()))
+                    }
                 } else {
                     self.cursor = Some(cat.1 as u8);
                     None
@@ -183,11 +188,12 @@ mod tests {
 
     #[test]
     fn select_level_one_leaf() {
-        let reader = io::Cursor::new("…\n※\n常用符號=，、。\n");
+        let reader = io::Cursor::new("…\n※\n常用符號=，、。\n快速\n");
         let mut sel = SymbolSelector::new(reader).expect("should parse");
 
-        assert_eq!(vec!["…", "※", "常用符號"], sel.menu());
+        assert_eq!(vec!["…", "※", "常用符號", "快速"], sel.menu());
         assert_eq!(Symbol::from('…'), sel.select(0).unwrap());
+        assert_eq!(Symbol::from("快速"), sel.select(3).unwrap());
     }
 
     #[test]
