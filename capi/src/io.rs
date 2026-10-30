@@ -358,6 +358,8 @@ pub unsafe extern "C" fn chewing_config_has_option(
         name.as_ref(),
         "chewing.user_phrase_add_direction"
             | "chewing.disable_auto_learn_phrase"
+            | "chewing.auto_learn_user_history"
+            | "chewing.auto_learn_new_words"
             | "chewing.auto_shift_cursor"
             | "chewing.candidates_per_page"
             | "chewing.language_mode"
@@ -405,6 +407,8 @@ pub unsafe extern "C" fn chewing_config_get_int(
             UserPhraseAddDirection::Backward => 1,
         },
         "chewing.disable_auto_learn_phrase" => option.disable_auto_learn_phrase as c_int,
+        "chewing.auto_learn_user_history" => option.auto_learn_user_history as c_int,
+        "chewing.auto_learn_new_words" => option.auto_learn_new_words as c_int,
         "chewing.auto_shift_cursor" => option.auto_shift_cursor as c_int,
         "chewing.candidates_per_page" => option.candidates_per_page as c_int,
         "chewing.language_mode" => match option.language_mode {
@@ -476,6 +480,14 @@ pub unsafe extern "C" fn chewing_config_set_int(
         "chewing.disable_auto_learn_phrase" => {
             ensure_bool!(value);
             options.disable_auto_learn_phrase = value > 0;
+        }
+        "chewing.auto_learn_user_history" => {
+            ensure_bool!(value);
+            options.auto_learn_user_history = value > 0;
+        }
+        "chewing.auto_learn_new_words" => {
+            ensure_bool!(value);
+            options.auto_learn_new_words = value > 0;
         }
         "chewing.auto_shift_cursor" => {
             ensure_bool!(value);

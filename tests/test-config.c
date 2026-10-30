@@ -41,6 +41,8 @@ void test_has_option()
     static const char *options[] = {
         "chewing.user_phrase_add_direction"
         ,"chewing.disable_auto_learn_phrase"
+        ,"chewing.auto_learn_user_history"
+        ,"chewing.auto_learn_new_words"
         ,"chewing.auto_shift_cursor"
         ,"chewing.candidates_per_page"
         ,"chewing.language_mode"
@@ -155,6 +157,12 @@ void test_default_value_options()
 
     ok(chewing_config_get_int(ctx, "chewing.disable_auto_learn_phrase") == 0,
         "default chewing.disable_auto_learn_phrase shall be 0");
+
+    ok(chewing_config_get_int(ctx, "chewing.auto_learn_user_history") == 1,
+        "default chewing.auto_learn_user_history shall be 1");
+
+    ok(chewing_config_get_int(ctx, "chewing.auto_learn_new_words") == 0,
+        "default chewing.auto_learn_new_words shall be 0");
 
     ok(chewing_config_get_int(ctx, "chewing.language_mode") == CHINESE_MODE,
         "default chewing.language_mode shall be %d", CHINESE_MODE);
