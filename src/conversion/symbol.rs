@@ -44,10 +44,11 @@ pub(crate) fn special_symbol_input(key: char) -> Option<char> {
         .map(|item| item.1)
 }
 
-pub(crate) fn full_width_symbol_input(key: char) -> Option<char> {
+pub(crate) fn full_width_symbol_input(key: char) -> char {
     FULL_WIDTH_SYMBOLS
         .iter()
         .find(|item| item.0 == key)
         .map(|item| item.1)
         .or_else(|| special_symbol_input(key))
+        .unwrap_or(key)
 }

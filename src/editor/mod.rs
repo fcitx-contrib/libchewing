@@ -32,10 +32,11 @@ use crate::{
     editor::{action::Action, keybind::Keybinding},
     input::{
         KeyState, KeyboardEvent,
-        keycode::{KEY_LEFT, KEY_RIGHT},
+        keycode::{KEY_LEFT, KEY_RIGHT, KEY_SPACE},
         keysym::*,
     },
     lm::{LoadMode, StaticDict, StaticLm},
+    model::WordId,
     path::SearchPath,
     user::{HistoryDict, SessionHistoryDict, UserDict, migrate_v3_to_v4, should_migrate_from_v3},
     zhuyin::Syllable,
@@ -78,6 +79,7 @@ pub struct EditorOptions {
     pub easy_symbol_input: bool,
     pub esc_clear_all_buffer: bool,
     pub space_is_select_key: bool,
+    pub cycle_first_n_selects: usize,
     pub auto_shift_cursor: bool,
     pub phrase_choice_rearward: bool,
     pub disable_auto_learn_phrase: bool,
@@ -101,6 +103,7 @@ impl Default for EditorOptions {
             easy_symbol_input: false,
             esc_clear_all_buffer: false,
             space_is_select_key: false,
+            cycle_first_n_selects: 0,
             auto_shift_cursor: false,
             phrase_choice_rearward: false,
             disable_auto_learn_phrase: false,
@@ -145,6 +148,7 @@ trait State: Any + Debug {
 #[derive(Debug)]
 enum Transition {
     ToState(Box<dyn State>),
+    RetryWith(Box<dyn State>),
     Spin(EditorKeyBehavior),
 }
 
@@ -400,6 +404,15 @@ impl Editor {
                 action: Action::MoveCursorRight,
                 param: None,
             },
+            Keybinding {
+                prefix: Prefix::Any,
+                trigger: KeyboardEvent::builder()
+                    .code(KEY_SPACE)
+                    .ksym(SYM_SPACE)
+                    .build(),
+                action: Action::QuickSelect,
+                param: None,
+            },
         ]
     }
 
@@ -555,6 +568,10 @@ impl Editor {
                     self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
                     self.state = to_state;
                 }
+                Transition::RetryWith(_) => {
+                    error!("Unexpected RetryWith transition from Selecting");
+                    self.shared.last_key_behavior = EditorKeyBehavior::Bell;
+                }
                 Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
             }
             if self.shared.last_key_behavior == EditorKeyBehavior::Absorb {
@@ -607,11 +624,7 @@ impl Editor {
     }
     /// TODO: doc, rename this to `render`?
     pub fn display(&self) -> String {
-        self.shared
-            .conversion()
-            .into_iter()
-            .map(|interval| interval.text)
-            .collect::<String>()
+        self.shared.display()
     }
     // TODO: decide the return type
     pub fn display_commit(&self) -> &str {
@@ -724,6 +737,10 @@ impl Editor {
                     self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
                     self.state = to_state;
                 }
+                Transition::RetryWith(_) => {
+                    error!("Unexpected RetryWith transition from Selecting");
+                    self.shared.last_key_behavior = EditorKeyBehavior::Bell;
+                }
                 Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
             }
             if self.is_selecting() {
@@ -811,6 +828,12 @@ impl SharedState {
             return vec![];
         }
         paths[self.nth_conversion % paths.len()].intervals.clone()
+    }
+    fn display(&self) -> String {
+        self.conversion()
+            .into_iter()
+            .map(|interval| interval.text)
+            .collect::<String>()
     }
     fn hypotheses(&self) -> Vec<Outcome> {
         self.conv.convert(self.com.as_ref())
@@ -1092,14 +1115,22 @@ impl BasicEditor for Editor {
         }
 
         let orig_nth_conv = self.shared.nth_conversion;
-        match self.state.next(&mut self.shared, key_event) {
-            Transition::ToState(to_state) => {
-                self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
-                self.state = to_state;
+        loop {
+            match self.state.next(&mut self.shared, key_event) {
+                Transition::ToState(to_state) => {
+                    self.shared.last_key_behavior = EditorKeyBehavior::Absorb;
+                    self.state = to_state;
+                    break;
+                }
+                Transition::RetryWith(to_state) => {
+                    self.state = to_state;
+                }
+                Transition::Spin(behavior) => {
+                    self.shared.last_key_behavior = behavior;
+                    break;
+                }
             }
-            Transition::Spin(behavior) => self.shared.last_key_behavior = behavior,
         }
-
         if self.shared.options.conversion_engine == ConversionEngineKind::SimpleEngine
             && self.is_entering()
             && !self.shared.com.is_empty()
@@ -1143,6 +1174,14 @@ struct Selecting {
 }
 
 #[derive(Debug)]
+struct QuickSelect {
+    candidates: Vec<WordId>,
+    begin: usize,
+    end: usize,
+    cycle: usize,
+}
+
+#[derive(Debug)]
 enum SelectingAction {
     Insert,
     Replace,
@@ -1173,7 +1212,11 @@ impl Entering {
             None => self.spin_ignore(),
         }
     }
-    fn start_selecting_or_input_space(&self, editor: &mut SharedState) -> Transition {
+    fn start_selecting_or_input_key(
+        &self,
+        editor: &mut SharedState,
+        ev: KeyboardEvent,
+    ) -> Transition {
         debug!("buffer {}", editor.com);
         match editor.com.symbol_for_select() {
             Some(symbol) => {
@@ -1185,8 +1228,41 @@ impl Entering {
             }
             None if editor.com.is_empty() => {
                 match editor.options.character_form {
-                    CharacterForm::Halfwidth => editor.commit_buffer.push(' '),
-                    CharacterForm::Fullwidth => editor.commit_buffer.push('　'),
+                    CharacterForm::Halfwidth => editor.commit_buffer.push(ev.ksym.to_unicode()),
+                    CharacterForm::Fullwidth => {
+                        let ch = full_width_symbol_input(ev.ksym.to_unicode());
+                        editor.commit_buffer.push(ch)
+                    }
+                }
+                self.spin_commit()
+            }
+            None => self.spin_ignore(),
+        }
+    }
+    fn start_quick_select_or_input_key(
+        &self,
+        editor: &mut SharedState,
+        ev: KeyboardEvent,
+    ) -> Transition {
+        debug!("buffer {}", editor.com);
+        match editor.com.symbol_for_select() {
+            Some(symbol) => {
+                if symbol.is_syllable() {
+                    Transition::RetryWith(Box::new(QuickSelect::new(
+                        editor,
+                        editor.options.cycle_first_n_selects,
+                    )))
+                } else {
+                    self.spin_bell()
+                }
+            }
+            None if editor.com.is_empty() => {
+                match editor.options.character_form {
+                    CharacterForm::Halfwidth => editor.commit_buffer.push(ev.ksym.to_unicode()),
+                    CharacterForm::Fullwidth => {
+                        let ch = full_width_symbol_input(ev.ksym.to_unicode());
+                        editor.commit_buffer.push(ch)
+                    }
                 }
                 self.spin_commit()
             }
@@ -1213,33 +1289,49 @@ impl Entering {
 
 impl State for Entering {
     fn next(&mut self, shared: &mut SharedState, ev: KeyboardEvent) -> Transition {
-        if let Some(keybind) = shared
+        let maybe_keybind = shared
             .keybindings
             .iter()
             .find(|kb| kb.matches(Prefix::Entering, &ev))
-        {
-            return match keybind.action {
+            .cloned();
+        if let Some(keybind) = maybe_keybind {
+            let handle = |shared: &mut SharedState| match keybind.action {
                 Action::MoveCursorLeft => {
                     if shared.com.is_empty() {
-                        return self.spin_ignore();
+                        return Some(self.spin_ignore());
                     }
                     shared
                         .com
                         .move_cursor_left(1, shared.options.auto_wrap_cursor);
-                    self.spin_absorb()
+                    Some(self.spin_absorb())
                 }
                 Action::MoveCursorRight => {
                     if shared.com.is_empty() {
-                        return self.spin_ignore();
+                        return Some(self.spin_ignore());
                     }
                     shared
                         .com
                         .move_cursor_right(1, shared.options.auto_wrap_cursor);
-                    self.spin_absorb()
+                    Some(self.spin_absorb())
                 }
-                Action::Ignore => self.spin_ignore(),
-                Action::Other(_) => self.spin_ignore(),
+                Action::QuickSelect => {
+                    if !shared.options.space_is_select_key {
+                        return None;
+                    }
+                    if shared.options.language_mode != LanguageMode::Chinese {
+                        return None;
+                    }
+                    if shared.options.cycle_first_n_selects > 0 {
+                        return Some(self.start_quick_select_or_input_key(shared, ev));
+                    }
+                    return Some(self.start_selecting_or_input_key(shared, ev));
+                }
+                Action::Ignore => Some(self.spin_ignore()),
+                Action::Other(_) => Some(self.spin_ignore()),
             };
+            if let Some(transition) = handle(shared) {
+                return transition;
+            }
         }
         match ev.ksym {
             SYM_BACKSPACE => {
@@ -1336,12 +1428,6 @@ impl State for Entering {
                 shared.switch_character_form();
                 self.spin_absorb()
             }
-            SYM_SPACE
-                if shared.options.space_is_select_key
-                    && shared.options.language_mode == LanguageMode::Chinese =>
-            {
-                self.start_selecting_or_input_space(shared)
-            }
             SYM_DOWN => {
                 debug!("buffer {}", shared.com);
                 self.start_selecting(shared)
@@ -1394,7 +1480,7 @@ impl State for Entering {
                                 }
                             }
                             CharacterForm::Fullwidth => {
-                                let char_ = full_width_symbol_input(ev.ksym.to_unicode()).unwrap();
+                                let char_ = full_width_symbol_input(ev.ksym.to_unicode());
                                 if shared.com.is_empty() {
                                     shared.commit_buffer.clear();
                                     shared.commit_buffer.push(char_);
@@ -1440,8 +1526,7 @@ impl State for Entering {
                                     }
                                 }
                                 CharacterForm::Fullwidth => {
-                                    let char_ =
-                                        full_width_symbol_input(ev.ksym.to_unicode()).unwrap();
+                                    let char_ = full_width_symbol_input(ev.ksym.to_unicode());
                                     if shared.com.is_empty() {
                                         shared.commit_buffer.clear();
                                         shared.commit_buffer.push(char_);
@@ -1472,7 +1557,7 @@ impl State for Entering {
                                 }
                             }
                             CharacterForm::Fullwidth => {
-                                let char_ = full_width_symbol_input(ev.ksym.to_unicode()).unwrap();
+                                let char_ = full_width_symbol_input(ev.ksym.to_unicode());
                                 if shared.com.is_empty() {
                                     shared.commit_buffer.clear();
                                     shared.commit_buffer.push(char_);
@@ -1865,6 +1950,118 @@ impl State for Selecting {
             }
             _ => self.spin_bell(),
         }
+    }
+}
+
+impl QuickSelect {
+    fn new(editor: &mut SharedState, max_cycle: usize) -> Self {
+        editor.com.push_cursor();
+        editor.com.clamp_cursor();
+
+        let mut sel = PhraseSelector::new(
+            !editor.options.phrase_choice_rearward,
+            editor.options.conversion_engine,
+            editor.com.to_composition(),
+        );
+        sel.init(editor.cursor(), &editor.dict);
+
+        loop {
+            let begin = sel.begin();
+            let end = sel.end();
+
+            // Find the word id of current range
+            // XXX: indexing the display buffer with symbol offset is not accurate.
+            let display = editor
+                .display()
+                .as_bytes()
+                .graphemes()
+                .skip(begin)
+                .take(end - begin)
+                .collect::<String>();
+            let wid = editor.string_table.intern(&display);
+
+            // Finalize the candidates
+            let candidates = sel
+                .candidates(editor)
+                .into_iter()
+                .filter(|&cand| cand != wid)
+                .take(max_cycle)
+                .collect::<Vec<_>>();
+            if candidates.is_empty() {
+                sel.next(&editor.dict);
+                continue;
+            }
+
+            return QuickSelect {
+                candidates,
+                cycle: 0,
+                begin,
+                end,
+            };
+        }
+    }
+    fn start_selecting(&self, editor: &mut SharedState) -> Transition {
+        Transition::ToState(Box::new(Selecting::new_phrase(editor)))
+    }
+    fn retry_with_entering(&self) -> Transition {
+        Transition::RetryWith(Box::new(Entering))
+    }
+    fn handle(
+        &mut self,
+        editor: &mut SharedState,
+        _ev: KeyboardEvent,
+        action: Action,
+    ) -> Transition {
+        match action {
+            Action::QuickSelect => {
+                if self.cycle > self.candidates.len() {
+                    editor.com.pop_cursor();
+                    return self.start_selecting(editor);
+                }
+                match self.candidates.get(self.cycle) {
+                    Some(wid) => {
+                        if let Some(interval) = editor
+                            .intervals()
+                            .find(|it| it.contains_range(self.begin, self.end))
+                        {
+                            for (i, ch) in interval.text.as_bytes().graphemes().enumerate() {
+                                let wid = editor.string_table.intern(ch);
+                                editor.com.select(Selection {
+                                    start: interval.start + i,
+                                    end: interval.start + i + 1,
+                                    wid,
+                                });
+                            }
+                        }
+                        let selection = Selection {
+                            start: self.begin,
+                            end: self.end,
+                            wid: *wid,
+                        };
+                        editor.com.select(selection);
+                        editor.com.pop_cursor();
+                        self.cycle += 1;
+                        return self.spin_absorb();
+                    }
+                    None => self.start_selecting(editor),
+                }
+            }
+            _ => self.retry_with_entering(),
+        }
+    }
+}
+
+impl State for QuickSelect {
+    fn next(&mut self, shared: &mut SharedState, ev: KeyboardEvent) -> Transition {
+        let maybe_keybind = shared
+            .keybindings
+            .iter()
+            .find(|kb| kb.matches(Prefix::Entering, &ev))
+            .cloned();
+        if let Some(keybind) = maybe_keybind {
+            return self.handle(shared, ev, keybind.action);
+        }
+        self.retry_with_entering()
     }
 }
 

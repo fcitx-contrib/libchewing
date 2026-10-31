@@ -23,6 +23,9 @@ What's New in libchewing 0.14.0 (unreleased)
     `chewing.auto_learn_new_words`.
   - editor: support new option `chewing.auto_wrap_cursor` to automatically wrap
     cursor from the end of the buffer to the beginning of the buffer.
+  - editor: support new option `chewing.cycle_first_n_selects`. When combined
+    with `chewing.space_is_select_key` it enables quick selecting first n
+    candidates before switching to show full candidate window.
   - editor: now typing Enter while composing bopomofo will directly output the
     bopomofo symbols.
   - editor: invalid spelling no longer clears the bopomofo buffer so user can

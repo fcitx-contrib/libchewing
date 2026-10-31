@@ -371,6 +371,7 @@ pub unsafe extern "C" fn chewing_config_has_option(
             | "chewing.selection_keys"
             | "chewing.character_form"
             | "chewing.space_is_select_key"
+            | "chewing.cycle_first_n_selects"
             | "chewing.conversion_engine"
             | "chewing.enable_fullwidth_toggle_key"
             | "chewing.sort_candidates_by_frequency"
@@ -424,6 +425,7 @@ pub unsafe extern "C" fn chewing_config_get_int(
             CharacterForm::Fullwidth => FULLSHAPE_MODE,
         },
         "chewing.space_is_select_key" => option.space_is_select_key as c_int,
+        "chewing.cycle_first_n_selects" => option.cycle_first_n_selects as c_int,
         "chewing.conversion_engine" => match option.conversion_engine {
             ConversionEngineKind::SimpleEngine => SIMPLE_CONVERSION_ENGINE,
             ConversionEngineKind::ChewingEngine => CHEWING_CONVERSION_ENGINE,
@@ -534,6 +536,9 @@ pub unsafe extern "C" fn chewing_config_set_int(
         "chewing.space_is_select_key" => {
             ensure_bool!(value);
             options.space_is_select_key = value > 0;
+        }
+        "chewing.cycle_first_n_selects" => {
+            options.cycle_first_n_selects = value.clamp(0, 10) as usize;
         }
         "chewing.conversion_engine" => {
             options.conversion_engine = match value {

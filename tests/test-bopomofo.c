@@ -650,6 +650,51 @@ void test_move_after_select_with_tab()
     chewing_delete(ctx);
 }
 
+void test_quick_select()
+{
+    static const char *CAND_1[] = {
+        "他們",
+        "她們",
+        "它們",
+        "牠們",
+    };
+
+    static const char *CAND_2[] = {
+        "們" ,
+    };
+    ChewingContext *ctx;
+
+    clean_userphrase();
+
+    ctx = chewing_new();
+    start_testcase(ctx);
+
+    chewing_set_maxChiSymbolLen(ctx, 16);
+    chewing_set_phraseChoiceRearward(ctx, 1);
+    chewing_set_spaceAsSelection(ctx, 1);
+    chewing_config_set_int(ctx, "chewing.cycle_first_n_selects", 3);
+
+    type_keystroke_by_string(ctx, "w8 ap7");  /* ㄊㄚㄇㄣ˙ */
+    ok_preedit_buffer(ctx, CAND_1[0]);
+
+    type_keystroke_by_string(ctx, " ");
+    ok_preedit_buffer(ctx, CAND_1[1]);
+
+    type_keystroke_by_string(ctx, " ");
+    ok_preedit_buffer(ctx, CAND_1[2]);
+
+    type_keystroke_by_string(ctx, " ");
+    ok_preedit_buffer(ctx, CAND_1[3]);
+
+    type_keystroke_by_string(ctx, " ");
+    ok_candidate(ctx, CAND_1, ARRAY_SIZE(CAND_1));
+
+    type_keystroke_by_string(ctx, " ");
+    ok_candidate(ctx, CAND_2, ARRAY_SIZE(CAND_2));
+
+    chewing_delete(ctx);
+}
+
 void test_select_candidate()
 {
     test_select_candidate_no_rearward();
@@ -671,6 +716,7 @@ void test_select_candidate()
     test_select_with_auto_snapshot();
     test_select_snapshot_subwords();
     test_move_after_select_with_tab();
+    test_quick_select();
 }
 
 void test_Esc_not_entering_chewing()

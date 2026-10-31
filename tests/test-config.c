@@ -54,6 +54,7 @@ void test_has_option()
         ,"chewing.selection_keys"
         ,"chewing.character_form"
         ,"chewing.space_is_select_key"
+        ,"chewing.cycle_first_n_selects"
         ,"chewing.conversion_engine"
         ,"chewing.enable_fullwidth_toggle_key"
     };
@@ -142,6 +143,9 @@ void test_default_value_options()
 
     ok(chewing_config_get_int(ctx, "chewing.space_is_select_key") == 0,
         "default chewing.space_is_select_key shall be 0");
+
+    ok(chewing_config_get_int(ctx, "chewing.cycle_first_n_selects") == 0,
+        "default chewing.cycle_first_n_selects shall be 0");
 
     ok(chewing_config_get_int(ctx, "chewing.esc_clear_all_buffer") == 0,
         "default chewing.esc_clear_all_buffer shall be 0");
