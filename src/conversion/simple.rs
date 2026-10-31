@@ -1,7 +1,7 @@
 use crate::{
     conversion::{Composition, ConversionEngine, Interval, Outcome},
     dictionary::{CompositeDict, LookupStrategy, StringTable},
-    model::Candidate,
+    model::Span,
 };
 
 /// Simple engine does not perform any intelligent conversion.
@@ -25,6 +25,10 @@ impl SimpleEngine {
             }
             if sym.is_char() {
                 intervals.push(Interval {
+                    src_span: Span {
+                        start: i as u8,
+                        end: (i + 1) as u8,
+                    },
                     start: i,
                     end: i + 1,
                     is_phrase: false,
@@ -35,19 +39,21 @@ impl SimpleEngine {
                     .dict
                     .lookup(&[sym.to_syllable().unwrap()], LookupStrategy::Standard)
                     .first()
-                    .cloned();
+                    .copied();
                 let phrase_str = phrase.map_or_else(
                     || sym.to_syllable().unwrap().to_string(),
-                    |cand| match cand {
-                        Candidate::Word { wid, .. } => self
-                            .string_table
-                            .get_text(wid)
+                    |cand| {
+                        self.string_table
+                            .get_text(cand.wid)
                             .unwrap_or("".into())
-                            .to_string(),
-                        _ => unreachable!(),
+                            .to_string()
                     },
                 );
                 intervals.push(Interval {
+                    src_span: Span {
+                        start: i as u8,
+                        end: (i + 1) as u8,
+                    },
                     start: i,
                     end: i + 1,
                     is_phrase: true,
@@ -58,6 +64,10 @@ impl SimpleEngine {
         intervals.extend(comp.selections().into_iter().filter_map(|s| {
             if let Some(text) = self.string_table.get_text(s.wid) {
                 Some(Interval {
+                    src_span: Span {
+                        start: s.start as u8,
+                        end: s.end as u8,
+                    },
                     start: s.start,
                     end: s.end,
                     is_phrase: true,
@@ -88,6 +98,7 @@ mod tests {
         conversion::{Composition, Interval, Outcome, Symbol},
         dictionary::{CompositeDict, StringTable},
         lm::StaticDict,
+        model::Span,
         syl,
         user::{HistoryDict, SessionHistoryDict, UserDict},
         zhuyin::Bopomofo::*,
@@ -149,36 +160,42 @@ mod tests {
             vec![Outcome {
                 intervals: vec![
                     Interval {
+                        src_span: Span { start: 0, end: 1 },
                         start: 0,
                         end: 1,
                         is_phrase: true,
                         text: "國".into()
                     },
                     Interval {
+                        src_span: Span { start: 1, end: 2 },
                         start: 1,
                         end: 2,
                         is_phrase: true,
                         text: "民".into()
                     },
                     Interval {
+                        src_span: Span { start: 2, end: 3 },
                         start: 2,
                         end: 3,
                         is_phrase: true,
                         text: "大".into()
                     },
                     Interval {
+                        src_span: Span { start: 3, end: 4 },
                         start: 3,
                         end: 4,
                         is_phrase: true,
                         text: "會".into()
                     },
                     Interval {
+                        src_span: Span { start: 4, end: 5 },
                         start: 4,
                         end: 5,
                         is_phrase: true,
                         text: "代".into()
                     },
                     Interval {
+                        src_span: Span { start: 5, end: 6 },
                         start: 5,
                         end: 6,
                         is_phrase: true,

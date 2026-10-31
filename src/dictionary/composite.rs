@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Instant};
 use crate::{
     dictionary::LookupStrategy,
     lm::StaticDict,
-    model::Candidate,
+    model::{Candidate, Span, WordId},
     user::{HistoryDict, SessionHistoryDict, UserDict},
     zhuyin::Syllable,
 };
@@ -20,6 +20,24 @@ struct CompositeDictInner {
     history_dict: HistoryDict,
     session_dict: SessionHistoryDict,
     user_dict: UserDict,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CompositeWord {
+    pub wid: WordId,
+    pub hist_prob: f64,
+    pub user_pref: Option<i8>,
+}
+
+impl CompositeWord {
+    pub(crate) fn to_candidate(self, span: Span) -> Candidate {
+        Candidate::Word {
+            wid: self.wid,
+            hist_prob: self.hist_prob,
+            user_pref: self.user_pref,
+            span,
+        }
+    }
 }
 
 impl CompositeDict {
@@ -41,7 +59,7 @@ impl CompositeDict {
         }
     }
 
-    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<Candidate> {
+    pub fn lookup(&self, syllables: &[Syllable], strategy: LookupStrategy) -> Vec<CompositeWord> {
         // base value
         let mut res: Vec<_> = self
             .inner
@@ -86,7 +104,7 @@ impl CompositeDict {
         let banned = self.inner.user_dict.lookup_banned(syllables, strategy);
         res.into_iter()
             .filter(|cand| !banned.contains(&cand.0))
-            .map(|cand| Candidate::Word {
+            .map(|cand| CompositeWord {
                 wid: cand.0,
                 hist_prob: cand.1,
                 user_pref: cand.2,

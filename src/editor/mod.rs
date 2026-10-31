@@ -438,7 +438,8 @@ impl Editor {
         self.shared.syl.clear();
     }
     pub fn cursor(&self) -> usize {
-        self.shared.cursor()
+        // TODO: maintain actual cursor affinity
+        self.shared.src_cursor()
     }
 
     // TODO: deprecate other direct set methods
@@ -614,6 +615,8 @@ impl Editor {
         self.shared.intervals()
     }
     pub fn len(&self) -> usize {
+        // TODO we should use output buffer length here
+        // TODO cache computation
         self.shared.com.len()
     }
     pub fn is_empty(&self) -> bool {
@@ -863,7 +866,7 @@ impl SharedState {
         self.nth_conversion = 0;
         debug!("snapshot current composition: {}", self.com);
     }
-    fn cursor(&self) -> usize {
+    fn src_cursor(&self) -> usize {
         self.com.cursor()
     }
     fn learn_phrase_in_range_notify(
@@ -935,13 +938,6 @@ impl SharedState {
         expect_error("Failed to learn phrase", || {
             if syllables.len() != phrase.as_bytes().graphemes().count() {
                 warn!(
-                    "syllables({:?})[{}] and phrase({})[{}] has different length",
-                    &syllables,
-                    syllables.len(),
-                    &phrase,
-                    phrase.as_bytes().graphemes().count()
-                );
-                bail!(
                     "syllables({:?})[{}] and phrase({})[{}] has different length",
                     &syllables,
                     syllables.len(),
@@ -1129,6 +1125,37 @@ impl BasicEditor for Editor {
                     self.shared.last_key_behavior = behavior;
                     break;
                 }
+            }
+        }
+        // Short term fix for abbrev expansion.
+        // To support this properly we need to allow different
+        // input buffer length and output buffer length.
+        {
+            // TODO cache computation
+            let mut to_replace = vec![];
+            for interval in self.intervals() {
+                if interval.is_abbrev_expansion() {
+                    to_replace.push(interval);
+                }
+            }
+            for interval in to_replace {
+                let src_len = interval.src_span.len();
+                let from = interval.src_span.start as usize;
+                let to = interval.src_span.end as usize;
+                let symbols = interval
+                    .text
+                    .as_bytes()
+                    .graphemes()
+                    .map(|g| Symbol::Grapheme(g.to_string()))
+                    .collect::<Vec<_>>();
+                // New interval can either expand or shrink
+                let new_cursor = if symbols.len() > src_len {
+                    self.cursor() + (symbols.len() - src_len)
+                } else {
+                    self.cursor().saturating_sub(src_len - symbols.len())
+                };
+                self.shared.com.replace_range(from, to, &symbols);
+                self.shared.com.move_cursor(new_cursor);
             }
         }
         if self.shared.options.conversion_engine == ConversionEngineKind::SimpleEngine
@@ -1352,13 +1379,14 @@ impl State for Entering {
                     return self.start_symbol_input(shared);
                 }
                 let result = match shared.options.user_phrase_add_dir {
-                    UserPhraseAddDirection::Forward => {
-                        shared.learn_phrase_in_range_notify(shared.cursor(), shared.cursor() + n)
-                    }
+                    UserPhraseAddDirection::Forward => shared
+                        .learn_phrase_in_range_notify(shared.src_cursor(), shared.src_cursor() + n),
                     UserPhraseAddDirection::Backward => {
-                        if shared.cursor() >= n {
-                            shared
-                                .learn_phrase_in_range_notify(shared.cursor() - n, shared.cursor())
+                        if shared.src_cursor() >= n {
+                            shared.learn_phrase_in_range_notify(
+                                shared.src_cursor() - n,
+                                shared.src_cursor(),
+                            )
                         } else {
                             "加詞失敗：字數不符或夾雜符號".clone_into(&mut shared.notice_buffer);
                             return self.spin_bell();
@@ -1382,7 +1410,7 @@ impl State for Entering {
             }
             SYM_TAB => {
                 let interval_ends: Vec<_> = shared.conversion().iter().map(|it| it.end).collect();
-                if interval_ends.contains(&shared.cursor()) {
+                if interval_ends.contains(&shared.src_cursor()) {
                     shared.com.insert_glue();
                 } else {
                     shared.com.insert_break();
@@ -1411,14 +1439,14 @@ impl State for Entering {
                     return self.spin_ignore();
                 }
                 // shared.snapshot();
-                self.start_highlighting(shared.cursor() - 1)
+                self.start_highlighting(shared.src_cursor() - 1)
             }
             SYM_RIGHT if ev.is_state_on(KeyState::Shift) => {
                 if shared.com.is_end_of_buffer() {
                     return self.spin_ignore();
                 }
                 // shared.snapshot();
-                self.start_highlighting(shared.cursor() + 1)
+                self.start_highlighting(shared.src_cursor() + 1)
             }
             SYM_UP => self.spin_ignore(),
             SYM_SPACE
@@ -1684,7 +1712,7 @@ impl Selecting {
             editor.options.conversion_engine,
             editor.com.to_composition(),
         );
-        sel.init(editor.cursor(), &editor.dict);
+        sel.init(editor.src_cursor(), &editor.dict);
 
         Selecting {
             page_no: 0,
@@ -1701,7 +1729,7 @@ impl Selecting {
             editor.options.conversion_engine,
             editor.com.to_composition(),
         );
-        sel.init_single_word(editor.cursor());
+        sel.init_single_word(editor.src_cursor());
 
         Selecting {
             page_no: 0,
@@ -1881,7 +1909,7 @@ impl State for Selecting {
                         shared.options.conversion_engine,
                         shared.com.to_composition(),
                     );
-                    sel.init(shared.cursor(), &shared.dict);
+                    sel.init(shared.src_cursor(), &shared.dict);
                     self.sel = Selector::Phrase(sel);
                 } else {
                     let sel = SpecialSymbolSelector::new(sym);
@@ -1907,7 +1935,7 @@ impl State for Selecting {
                         shared.options.conversion_engine,
                         shared.com.to_composition(),
                     );
-                    sel.init(shared.cursor(), &shared.dict);
+                    sel.init(shared.src_cursor(), &shared.dict);
                     self.sel = Selector::Phrase(sel);
                 } else {
                     let sel = SpecialSymbolSelector::new(sym);
@@ -1963,7 +1991,7 @@ impl QuickSelect {
             editor.options.conversion_engine,
             editor.com.to_composition(),
         );
-        sel.init(editor.cursor(), &editor.dict);
+        sel.init(editor.src_cursor(), &editor.dict);
 
         loop {
             let begin = sel.begin();
@@ -2233,6 +2261,7 @@ mod tests {
     use crate::editor::collect_words;
     use crate::editor::{EditorBuilder, LanguageMode};
     use crate::lm::StaticDictBuilder;
+    use crate::model::Span;
     use crate::user::UserDict;
     use crate::{
         conversion::{Interval, Symbol},
@@ -2636,18 +2665,21 @@ mod tests {
     fn collect_new_phrases_with_no_break_word() {
         let intervals = [
             Interval {
+                src_span: Span { start: 0, end: 2 },
                 start: 0,
                 end: 2,
                 is_phrase: true,
                 text: "今天".into(),
             },
             Interval {
+                src_span: Span { start: 2, end: 4 },
                 start: 2,
                 end: 4,
                 is_phrase: true,
                 text: "天氣".into(),
             },
             Interval {
+                src_span: Span { start: 4, end: 6 },
                 start: 4,
                 end: 6,
                 is_phrase: true,
@@ -2695,24 +2727,28 @@ mod tests {
     fn collect_new_phrases_with_break_word() {
         let intervals = [
             Interval {
+                src_span: Span { start: 0, end: 2 },
                 start: 0,
                 end: 2,
                 is_phrase: true,
                 text: "今天".into(),
             },
             Interval {
+                src_span: Span { start: 2, end: 3 },
                 start: 2,
                 end: 3,
                 is_phrase: true,
                 text: "也".into(),
             },
             Interval {
+                src_span: Span { start: 3, end: 4 },
                 start: 3,
                 end: 4,
                 is_phrase: true,
                 text: "是".into(),
             },
             Interval {
+                src_span: Span { start: 4, end: 7 },
                 start: 4,
                 end: 7,
                 is_phrase: true,
@@ -2762,24 +2798,28 @@ mod tests {
     fn collect_words_test() {
         let intervals = [
             Interval {
+                src_span: Span { start: 0, end: 2 },
                 start: 0,
                 end: 2,
                 is_phrase: true,
                 text: "今天".into(),
             },
             Interval {
+                src_span: Span { start: 2, end: 3 },
                 start: 2,
                 end: 3,
                 is_phrase: true,
                 text: "也".into(),
             },
             Interval {
+                src_span: Span { start: 3, end: 4 },
                 start: 3,
                 end: 4,
                 is_phrase: true,
                 text: "是".into(),
             },
             Interval {
+                src_span: Span { start: 4, end: 7 },
                 start: 4,
                 end: 7,
                 is_phrase: true,
@@ -3006,7 +3046,7 @@ mod tests {
     }
 
     #[test]
-    fn learn_phrase_rejects_wrong_character_count() {
+    fn learn_phrase_accept_unequal_character_count() {
         let mut editor = EditorBuilder::new().build();
 
         let syllables = [
@@ -3014,8 +3054,6 @@ mod tests {
             syl![bpmf::SH, bpmf::TONE4],
         ];
 
-        // Two codepoints but only one character, so it cannot match two
-        // syllables
-        assert!(editor.learn_phrase(&syllables, IVS_CE).is_err());
+        assert!(editor.learn_phrase(&syllables, IVS_CE).is_ok());
     }
 }

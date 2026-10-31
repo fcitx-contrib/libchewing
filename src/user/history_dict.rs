@@ -11,6 +11,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use bstr::ByteSlice;
 use scoped_error::{bail, expect_error, impl_context_error};
 
 use crate::{
@@ -432,12 +433,19 @@ impl HistoryDict {
                 lock.unigrams
                     .range::<[Syllable], _>((Included(syllables), Excluded(end.as_slice())))
                     .flat_map(|(_, entries)| {
-                        entries.iter().map(|e| {
-                            let wid = e.wid;
-                            let count = effective_count(e.count, g, e.last_gen, h);
-                            let logprob10 = (count as f64 / denominator).log10();
-                            (wid, logprob10)
-                        })
+                        entries
+                            .iter()
+                            .filter(|e| {
+                                lock.string_table.get_text(e.wid).is_some_and(|s| {
+                                    s.as_bytes().graphemes().count() == syllables.len()
+                                })
+                            })
+                            .map(|e| {
+                                let wid = e.wid;
+                                let count = effective_count(e.count, g, e.last_gen, h);
+                                let logprob10 = (count as f64 / denominator).log10();
+                                (wid, logprob10)
+                            })
                     })
                     .collect()
             }

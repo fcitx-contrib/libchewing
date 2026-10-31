@@ -52,12 +52,12 @@ pub(crate) fn segment(static_lm: &Path, words: &Path) -> Result<()> {
                         let mut segmented = String::new();
                         for (i, segstr) in hyp
                             .candidates
-                            .iter()
+                            .into_iter()
                             .map(|cand| match cand {
                                 Candidate::Word { wid, .. } => {
-                                    string_table.get_text(*wid).unwrap_or("<unk>".into())
+                                    string_table.get_text(wid).unwrap_or("<unk>".into())
                                 }
-                                Candidate::Grapheme(c) => c.to_string(),
+                                Candidate::Grapheme { text, .. } => text,
                                 Candidate::None => "<unk>".into(),
                             })
                             .enumerate()

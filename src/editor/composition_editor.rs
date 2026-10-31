@@ -171,6 +171,14 @@ impl CompositionEditor {
     pub(crate) fn replace(&mut self, sym: Symbol) {
         self.inner.replace(self.cursor, sym);
     }
+    pub(crate) fn replace_range(&mut self, from: usize, to: usize, symbols: &[Symbol]) {
+        for sym in symbols.iter().rev() {
+            self.inner.insert(to, sym.clone());
+        }
+        for _ in from..to {
+            self.inner.remove(from);
+        }
+    }
     pub(crate) fn symbol_for_select(&self) -> Option<Symbol> {
         let cursor = if self.is_end_of_buffer() {
             self.cursor.saturating_sub(1)

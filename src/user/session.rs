@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use bstr::ByteSlice;
+
 use crate::{
     dictionary::{LookupStrategy, StringTable},
     model::WordId,
@@ -34,7 +36,7 @@ struct SessionInner {
     by_time: VecDeque<Event>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct RecencyEntry {
     wid: WordId,
     at: Instant,
@@ -142,11 +144,20 @@ impl SessionHistoryDict {
                     .by_syllables
                     .range::<[Syllable], _>((Included(syllables), Excluded(end.as_slice())))
                 {
+                    let entries = entries
+                        .iter()
+                        .filter(|e| {
+                            lock.string_table.get_text(e.wid).is_some_and(|s| {
+                                s.as_bytes().graphemes().count() == syllables.len()
+                            })
+                        })
+                        .copied()
+                        .collect::<Vec<_>>();
                     push_bonuses(
                         lock.half_life,
                         lock.window,
                         now,
-                        entries,
+                        &entries,
                         key.len(),
                         &mut out,
                     );
@@ -295,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn fuzzy_prefix_finds_longer_keys() {
+    fn fuzzy_prefix_filter_longer_keys() {
         let st = StringTable::new();
         let s = SessionHistoryDict::new(st);
         let long = vec![
@@ -307,9 +318,7 @@ mod tests {
         s.observe(now, &long, "測試機");
 
         let out = s.lookup(now, &long[..2], LookupStrategy::FuzzyPartialPrefix);
-        assert_eq!(out.len(), 1);
-        // key_len == 3, so the full multi-syllable factor applies
-        assert!((out[0].1 - SessionHistoryDict::BONUS_MAX).abs() < 1e-9);
+        assert_eq!(out.len(), 0);
     }
 
     #[test]

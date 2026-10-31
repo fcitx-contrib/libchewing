@@ -7,7 +7,7 @@ use super::{Composition, ConversionEngine, Gap, Interval, Outcome};
 use crate::{
     conversion::{Decoder, LatticeBuilder},
     dictionary::StringTable,
-    model::Candidate,
+    model::{Candidate, Span},
 };
 
 /// The default Chewing conversion method.
@@ -34,20 +34,25 @@ impl ChewingEngine {
                     .candidates
                     .into_iter()
                     .map(|cand| match cand {
-                        Candidate::None => ("<unk>".to_string().into_boxed_str(), false),
-                        Candidate::Word { wid, .. } => {
+                        Candidate::None => {
+                            (Span::default(), "<unk>".to_string().into_boxed_str(), false)
+                        }
+                        Candidate::Word { wid, span, .. } => {
                             let text = self
                                 .string_table
                                 .get_text(wid)
                                 .unwrap_or("<unk>".into())
                                 .to_string()
                                 .into_boxed_str();
-                            (text, true)
+                            (span, text, true)
                         }
-                        Candidate::Grapheme(ch) => (ch.to_string().into_boxed_str(), false),
+                        Candidate::Grapheme { text, span, .. } => {
+                            (span, text.into_boxed_str(), false)
+                        }
                     })
-                    .map(|(text, is_phrase)| {
+                    .map(|(src_span, text, is_phrase)| {
                         let int = Interval {
+                            src_span,
                             start: cursor,
                             end: cursor + text.as_bytes().graphemes().count(),
                             is_phrase,
@@ -89,6 +94,10 @@ fn glue_fn(com: &Composition, mut acc: Vec<Interval>, interval: Interval) -> Vec
         let mut phrase = last.text.into_string();
         phrase.push_str(&interval.text);
         acc.push(Interval {
+            src_span: Span {
+                start: last.src_span.start,
+                end: interval.src_span.end,
+            },
             start: last.start,
             end: interval.end,
             is_phrase: true,
@@ -108,6 +117,7 @@ mod tests {
         },
         dictionary::{CompositeDict, LookupStrategy, StringTable},
         lm::{StaticDict, StaticLm},
+        model::Span,
         syl,
         user::{HistoryDict, SessionHistoryDict, UserDict},
         zhuyin::Bopomofo::*,
@@ -180,18 +190,21 @@ mod tests {
         assert_eq!(
             vec![
                 Interval {
+                    src_span: Span { start: 0, end: 2 },
                     start: 0,
                     end: 2,
                     is_phrase: true,
                     text: "國民".into()
                 },
                 Interval {
+                    src_span: Span { start: 2, end: 4 },
                     start: 2,
                     end: 4,
                     is_phrase: true,
                     text: "大會".into()
                 },
                 Interval {
+                    src_span: Span { start: 4, end: 6 },
                     start: 4,
                     end: 6,
                     is_phrase: true,
@@ -235,30 +248,35 @@ mod tests {
         assert_eq!(
             vec![
                 Interval {
+                    src_span: Span { start: 0, end: 1 },
                     start: 0,
                     end: 1,
                     is_phrase: true,
                     text: "國".into()
                 },
                 Interval {
+                    src_span: Span { start: 1, end: 2 },
                     start: 1,
                     end: 2,
                     is_phrase: true,
                     text: "民".into()
                 },
                 Interval {
+                    src_span: Span { start: 2, end: 4 },
                     start: 2,
                     end: 4,
                     is_phrase: true,
                     text: "大會".into()
                 },
                 Interval {
+                    src_span: Span { start: 4, end: 5 },
                     start: 4,
                     end: 5,
                     is_phrase: true,
                     text: "代".into()
                 },
                 Interval {
+                    src_span: Span { start: 5, end: 6 },
                     start: 5,
                     end: 6,
                     is_phrase: true,
@@ -305,18 +323,21 @@ mod tests {
         assert_eq!(
             vec![
                 Interval {
+                    src_span: Span { start: 0, end: 2 },
                     start: 0,
                     end: 2,
                     is_phrase: true,
                     text: "國民".into()
                 },
                 Interval {
+                    src_span: Span { start: 2, end: 4 },
                     start: 2,
                     end: 4,
                     is_phrase: true,
                     text: "大會".into()
                 },
                 Interval {
+                    src_span: Span { start: 4, end: 6 },
                     start: 4,
                     end: 6,
                     is_phrase: true,
@@ -361,6 +382,7 @@ mod tests {
         // FIXME: support substring selection?
         assert_eq!(
             vec![Interval {
+                src_span: Span { start: 0, end: 3 },
                 start: 0,
                 end: 3,
                 is_phrase: true,
@@ -411,12 +433,14 @@ mod tests {
         assert_eq!(
             vec![
                 Interval {
+                    src_span: Span { start: 0, end: 1 },
                     start: 0,
                     end: 1,
                     is_phrase: true,
                     text: "代".into()
                 },
                 Interval {
+                    src_span: Span { start: 1, end: 2 },
                     start: 1,
                     end: 2,
                     is_phrase: true,
@@ -456,12 +480,14 @@ mod tests {
         assert_eq!(
             vec![
                 Interval {
+                    src_span: Span { start: 0, end: 2 },
                     start: 0,
                     end: 2,
                     is_phrase: true,
                     text: "測試".into()
                 },
                 Interval {
+                    src_span: Span { start: 2, end: 4 },
                     start: 2,
                     end: 4,
                     is_phrase: true,
@@ -473,12 +499,14 @@ mod tests {
         assert_eq!(
             vec![
                 Interval {
+                    src_span: Span { start: 0, end: 3 },
                     start: 0,
                     end: 3,
                     is_phrase: true,
                     text: "測試儀".into()
                 },
                 Interval {
+                    src_span: Span { start: 3, end: 4 },
                     start: 3,
                     end: 4,
                     is_phrase: true,
@@ -490,12 +518,14 @@ mod tests {
         assert_eq!(
             Some(vec![
                 Interval {
+                    src_span: Span { start: 0, end: 2 },
                     start: 0,
                     end: 2,
                     is_phrase: true,
                     text: "測試".into()
                 },
                 Interval {
+                    src_span: Span { start: 2, end: 4 },
                     start: 2,
                     end: 4,
                     is_phrase: true,

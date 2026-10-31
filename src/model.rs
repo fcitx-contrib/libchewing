@@ -56,6 +56,21 @@ impl WordId {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Span {
+    pub start: u8,
+    pub end: u8,
+}
+
+impl Span {
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn len(&self) -> usize {
+        (self.end - self.start) as usize
+    }
+}
+
 /// A possible intepretation of the input state.
 #[derive(Debug, Clone, Default)]
 pub enum Candidate {
@@ -65,8 +80,12 @@ pub enum Candidate {
         wid: WordId,
         hist_prob: f64,
         user_pref: Option<i8>,
+        span: Span,
     },
-    Grapheme(String),
+    Grapheme {
+        text: String,
+        span: Span,
+    },
 }
 
 impl Candidate {
@@ -80,7 +99,9 @@ impl PartialEq for Candidate {
         match (self, other) {
             (Candidate::None, Candidate::None) => true,
             (Candidate::Word { wid: w1, .. }, Candidate::Word { wid: w2, .. }) => w1 == w2,
-            (Candidate::Grapheme(g1), Candidate::Grapheme(g2)) => g1 == g2,
+            (Candidate::Grapheme { text: g1, .. }, Candidate::Grapheme { text: g2, .. }) => {
+                g1 == g2
+            }
             _ => false,
         }
     }

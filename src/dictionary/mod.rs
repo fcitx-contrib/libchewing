@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 
 pub use self::composite::CompositeDict;
+pub use self::composite::CompositeWord;
 pub use self::phrase::{Entries, Phrase, Phrases};
 pub use self::string_table::StringTable;
 pub use self::string_table::StringTableBuilder;

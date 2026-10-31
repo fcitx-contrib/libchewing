@@ -1405,10 +1405,16 @@ pub unsafe extern "C" fn chewing_userphrase_add(
     let _logger_guard = init_scoped_logging(ctx.logger_fn, ctx.logger_data);
 
     let syllables = match unsafe { str_from_ptr_with_nul(bopomofo_buf) } {
-        Some(bopomofo) => bopomofo
-            .split_ascii_whitespace()
-            .map_while(|it| it.parse::<Syllable>().ok())
-            .collect::<Vec<_>>(),
+        Some(bopomofo) => {
+            let mut syllables = vec![];
+            for seg in bopomofo.split_ascii_whitespace() {
+                let Ok(syl) = seg.parse::<Syllable>() else {
+                    return 0;
+                };
+                syllables.push(syl);
+            }
+            syllables
+        }
         None => return 0,
     };
 

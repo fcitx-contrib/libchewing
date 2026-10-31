@@ -734,7 +734,7 @@ void test_userphrase_manipulate_hash_collision()
     chewing_delete(ctx);
 }
 
-void test_userphrase_manipulate_error_handling()
+void test_userphrase_manipulate_unequal_length()
 {
     ChewingContext *ctx;
     int ret;
@@ -744,9 +744,24 @@ void test_userphrase_manipulate_error_handling()
     ctx = chewing_new();
     start_testcase(ctx);
 
-    ret = chewing_userphrase_add(ctx, "\xE6\xB8\xAC\xE8\xA9\xA6" /* 測試 */ ,
-                                 "\xE3\x84\x98\xE3\x84\x9C\xCB\x8B" /* ㄘㄜˋ */ );
-    ok(ret == 0, "chewing_userphrase_add() return value `%d' shall be `%d'", ret, 0);
+    ret = chewing_userphrase_add(ctx, "測試", "ㄘㄜˋ");
+    ok(ret == 1, "chewing_userphrase_add() return value `%d' shall be `%d'", ret, 1);
+
+    ret = chewing_userphrase_remove(ctx, "測試", "ㄘㄜˋ");
+    ok(ret == 1, "chewing_userphrase_remove() return value `%d' shall be `%d'", ret, 1);
+
+    chewing_delete(ctx);
+}
+
+void test_userphrase_manipulate_error_handling()
+{
+    ChewingContext *ctx;
+    int ret;
+
+    clean_userphrase();
+
+    ctx = chewing_new();
+    start_testcase(ctx);
 
     ret = chewing_userphrase_add(ctx, "\xE6\xB8\xAC\xE8\xA9\xA6" /* 測試 */ ,
                                  "\xE3\x84\x98\xE3\x84\x9C\xCB\x8B \xCB\x8B\xE3\x84\x95" /* ㄘㄜˋ ˋㄕ */ );
@@ -858,6 +873,7 @@ void test_userphrase_manipulate()
     test_userphrase_manipulate_normal();
     test_userphrase_manipulate_maximum();
     test_userphrase_manipulate_hash_collision();
+    test_userphrase_manipulate_unequal_length();
     test_userphrase_manipulate_error_handling();
     test_userphrase_manipulate_remove_same_phone();
     test_userphrase_manipulate_remove_same_phrase();
@@ -1019,9 +1035,9 @@ void test_userphrase_multi_codepoint_character()
     ret = chewing_userphrase_lookup(ctx, phrase, one_syllable);
     ok(ret == 1, "chewing_userphrase_lookup() return value `%d' shall be `%d'", ret, 1);
 
-    /* The same one character cannot match two syllables */
+    /* The same one character can also match two syllables */
     ret = chewing_userphrase_add(ctx, phrase, two_syllables);
-    ok(ret == 0, "chewing_userphrase_add() return value `%d' shall be `%d'", ret, 0);
+    ok(ret == 1, "chewing_userphrase_add() return value `%d' shall be `%d'", ret, 1);
 
     chewing_delete(ctx);
 }

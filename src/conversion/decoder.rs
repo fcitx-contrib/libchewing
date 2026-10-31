@@ -4,8 +4,9 @@ use std::{cmp::Ordering, ops::Neg};
 
 use crate::{
     conversion::word_lattice::{Edge, Lattice},
+    dictionary::CompositeWord,
     lm::static_lm::StaticLm,
-    model::{Candidate, WordId},
+    model::{Candidate, Span, WordId},
     user::HistoryDict,
 };
 
@@ -92,10 +93,16 @@ impl Decoder {
     /// # Returns
     ///
     /// Candidates sorted from most likely to least likely.
-    pub fn rank(&self, candidates: Vec<Candidate>) -> Vec<Candidate> {
+    pub fn rank(&self, candidates: Vec<CompositeWord>) -> Vec<CompositeWord> {
+        let span = Span::default();
         let mut ranked: Vec<_> = candidates
             .iter()
-            .map(|c| (OrderedF64(self.cost_fun(&Candidate::None, c)), c))
+            .map(|c| {
+                (
+                    OrderedF64(self.cost_fun(&Candidate::None, &c.to_candidate(span))),
+                    c,
+                )
+            })
             .collect();
         ranked.sort_by_key(|&(cost, _)| cost);
         ranked.into_iter().map(|(_, w)| w.clone()).collect()
@@ -103,7 +110,7 @@ impl Decoder {
     fn cost_fun(&self, w1: &Candidate, w2: &Candidate) -> f64 {
         let (wid1, wid2) = match (w1, w2) {
             (Candidate::Word { wid: a, .. }, Candidate::Word { wid: b, .. }) => (*a, *b),
-            (_, Candidate::Grapheme(_)) => {
+            (_, Candidate::Grapheme { .. }) => {
                 // Selected words, snapshots, or punctuations has 100% certanity
                 return 0.0;
             }
@@ -115,6 +122,7 @@ impl Decoder {
                 wid: _,
                 hist_prob,
                 user_pref,
+                span: _,
             } => (*hist_prob, *user_pref),
             _ => (f64::NEG_INFINITY, None),
         };
@@ -281,7 +289,7 @@ impl Ord for OrderedF64 {
 mod test {
     use crate::{
         conversion::{Hypothesis, Lattice, decoder::find_k_paths, word_lattice::Edge},
-        model::{Candidate, WordId},
+        model::{Candidate, Span, WordId},
     };
 
     fn word(wid: u32) -> Candidate {
@@ -289,6 +297,7 @@ mod test {
             wid: WordId(wid),
             hist_prob: 0.0,
             user_pref: None,
+            span: Span::default(),
         }
     }
 

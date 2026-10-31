@@ -6,7 +6,7 @@ use log::trace;
 use crate::{
     conversion::{Composition, Gap, Symbol},
     dictionary::{CompositeDict, LookupStrategy},
-    model::{Candidate, WordId},
+    model::{Candidate, Span, WordId},
     zhuyin::{Syllable, SyllableVec},
 };
 
@@ -54,12 +54,22 @@ impl Lattice {
                             wid,
                             hist_prob: f64::NEG_INFINITY,
                             user_pref: None,
+                            span: Span {
+                                start: start as u8,
+                                end: end as u8,
+                            },
                         },
                     });
                 } else if (end - start) == 1 {
                     edges[start].push(Edge {
                         end: end as u8,
-                        cand: Candidate::Grapheme(substr.to_owned()),
+                        cand: Candidate::Grapheme {
+                            text: substr.to_owned(),
+                            span: Span {
+                                start: start as u8,
+                                end: end as u8,
+                            },
+                        },
                     });
                 }
             }
@@ -98,7 +108,13 @@ impl LatticeBuilder {
         if symbols.len() == 1
             && let Some(sym) = symbols[0].to_char()
         {
-            return vec![Candidate::Grapheme(sym)];
+            return vec![Candidate::Grapheme {
+                text: sym,
+                span: Span {
+                    start: start as u8,
+                    end: (start + 1) as u8,
+                },
+            }];
         }
 
         if symbols.iter().any(|sym| sym.is_char()) {
@@ -122,6 +138,10 @@ impl LatticeBuilder {
                     wid: selection.wid,
                     hist_prob: f64::NEG_INFINITY,
                     user_pref: None,
+                    span: Span {
+                        start: start as u8,
+                        end: end as u8,
+                    },
                 }];
             }
             if selection.intersect_range(start, end) {
@@ -139,6 +159,15 @@ impl LatticeBuilder {
             .map(|s| s.to_syllable().unwrap_or_default())
             .collect();
 
-        self.dict.lookup(&syllables, self.lookup_strategy)
+        let span = Span {
+            start: start as u8,
+            end: end as u8,
+        };
+
+        self.dict
+            .lookup(&syllables, self.lookup_strategy)
+            .iter()
+            .map(|w| w.to_candidate(span))
+            .collect()
     }
 }

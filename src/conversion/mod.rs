@@ -10,7 +10,10 @@ pub use self::decoder::{Decoder, Hypothesis};
 pub use self::simple::SimpleEngine;
 pub(crate) use self::symbol::{full_width_symbol_input, special_symbol_input};
 pub use self::word_lattice::{Lattice, LatticeBuilder};
-use crate::{model::WordId, zhuyin::Syllable};
+use crate::{
+    model::{Span, WordId},
+    zhuyin::Syllable,
+};
 
 mod chewing;
 mod decoder;
@@ -38,6 +41,8 @@ pub struct Outcome {
 /// Interval represents a segment of input buffer converted to a phrase.
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct Interval {
+    /// The input span of the interval.
+    pub src_span: Span,
     /// The starting offset of the interval.
     pub start: usize,
     /// The end (exclusive) of the interval.
@@ -79,6 +84,9 @@ impl Interval {
     /// Whether the interval is empty (no output).
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+    pub(crate) fn is_abbrev_expansion(&self) -> bool {
+        self.src_span.len() != self.len()
     }
 }
 

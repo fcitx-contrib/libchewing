@@ -34,6 +34,9 @@ What's New in libchewing 0.14.0 (unreleased)
   - editor: added initial support for ephemeral session history.
   - editor: symbol selector now outputs multi-characters strings in symbols.dat
     if it is the only choice. (windows-chewing-tsf#812)
+  - editor: added initial support for word abbrev expansion. User dictionary
+    can contain unequal length bopomofo and word entries.
+
 
 What's New in libchewing 0.13.1 (July 15, 2026)
 ---------------------------------------------------------
