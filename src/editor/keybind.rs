@@ -41,11 +41,11 @@ pub struct Keybinding {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct KeybindValue {
-    pub(crate) prefix: Option<String>,
-    pub(crate) trigger: String,
-    pub(crate) action: String,
-    pub(crate) param: Option<String>,
+pub struct KeybindValue {
+    pub prefix: Option<String>,
+    pub trigger: String,
+    pub action: String,
+    pub param: Option<String>,
 }
 
 impl TryFrom<&KeybindValue> for Keybinding {
