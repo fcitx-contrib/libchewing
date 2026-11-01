@@ -2012,6 +2012,7 @@ impl QuickSelect {
         );
         sel.init(editor.src_cursor(), &editor.dict);
 
+        let mut skip_count = 0;
         loop {
             let begin = sel.begin();
             let end = sel.end();
@@ -2034,8 +2035,9 @@ impl QuickSelect {
                 .filter(|&cand| cand != wid)
                 .take(max_cycle)
                 .collect::<Vec<_>>();
-            if candidates.is_empty() {
+            if candidates.is_empty() && skip_count < 11 {
                 sel.next(&editor.dict);
+                skip_count += 1;
                 continue;
             }
 
