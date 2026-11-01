@@ -1892,7 +1892,9 @@ impl State for Selecting {
                 }
                 self.spin_absorb()
             }
-            SYM_LOWER_J => {
+            SYM_LOWER_J
+                if shared.options.conversion_engine != ConversionEngineKind::SimpleEngine =>
+            {
                 if shared.com.is_empty() {
                     return self.spin_ignore();
                 }
@@ -1917,7 +1919,9 @@ impl State for Selecting {
                 }
                 self.spin_absorb()
             }
-            SYM_LOWER_K => {
+            SYM_LOWER_K
+                if shared.options.conversion_engine != ConversionEngineKind::SimpleEngine =>
+            {
                 if shared.com.is_empty() {
                     return self.spin_ignore();
                 }
@@ -1976,7 +1980,12 @@ impl State for Selecting {
                 // NB: should be Ignore but return Absorb for backward compat
                 self.spin_absorb()
             }
-            _ => self.spin_bell(),
+            _ => {
+                if shared.options.conversion_engine == ConversionEngineKind::SimpleEngine {
+                    return Transition::RetryWith(Box::new(EnteringSyllable));
+                }
+                self.spin_bell()
+            }
         }
     }
 }
