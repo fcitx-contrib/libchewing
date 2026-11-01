@@ -141,6 +141,8 @@ fn keysym_from_str(s: &str) -> Option<Keysym> {
         "CapsLock" => SYM_CAPSLOCK,
         "Enter" | "Return" => SYM_RETURN,
         "Space" => SYM_SPACE,
+        "LShift" | "ShiftLeft" | "LeftShift" => SYM_LEFTSHIFT,
+        "RShift" | "ShiftRight" | "RightShift" => SYM_RIGHTSHIFT,
         _ if s.chars().count() == 1 => Keysym::from_char(s.chars().next().unwrap()),
         _ => return None,
     };

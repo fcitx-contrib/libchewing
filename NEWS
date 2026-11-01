@@ -10,6 +10,10 @@ What's New in libchewing 0.14.0 (unreleased)
     - swkb.dat
     - symbols.dat
 
+* New API
+  - editor: new API `set_keybindings` and `test_keybinding` can be used to
+    set and query custom keybindings.
+
 * Changes
   - BREAKING: dict: support for auto migration from the legacy
     hash.dat and uhash.dat format has been removed.

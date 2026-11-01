@@ -814,6 +814,16 @@ impl Editor {
             };
         }
     }
+    pub fn set_keybindings(&mut self, keybindings: Vec<Keybinding>) {
+        self.shared.keybindings = keybindings;
+    }
+    pub fn test_keybinding(&self, ev: KeyboardEvent) -> Option<Keybinding> {
+        self.shared
+            .keybindings
+            .iter()
+            .find(|kb| kb.matches(Prefix::Any, &ev))
+            .cloned()
+    }
 }
 
 impl SharedState {
